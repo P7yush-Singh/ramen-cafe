@@ -9,7 +9,11 @@ import {
   X,
 } from "lucide-react";
 import { getTableId } from "@/lib/tableSession";
-import { getCart, saveCart } from "@/lib/cart";
+import {
+  getCart,
+  saveCart,
+  clearCart
+} from "@/lib/cart";
 
 const ADDONS = [
   {
@@ -77,7 +81,7 @@ export default function ProductCustomization({
     );
   }
 
-  function addToCart() {
+ function addToCart() {
   const tableId = getTableId();
 
   const currentCart = getCart();
@@ -123,6 +127,10 @@ export default function ProductCustomization({
   ];
 
   saveCart(updatedCart);
+
+  window.dispatchEvent(
+    new Event("cart-updated")
+  );
 
   onAdded?.({
     product: product.name,

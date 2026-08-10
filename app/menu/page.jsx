@@ -21,6 +21,7 @@ import {
 import {
   getCart,
   saveCart,
+  clearCart
 } from "@/lib/cart";
 
 export default function MenuPage() {
@@ -116,107 +117,151 @@ export default function MenuPage() {
   // =====================================================
 
   function initializeTable() {
-    const params = new URLSearchParams(
-      window.location.search
-    );
+  const params = new URLSearchParams(
+    window.location.search
+  );
 
-    const qrTableId = params
-      .get("table")
-      ?.trim()
-      .toUpperCase();
+  const qrTableId = params
+    .get("table")
+    ?.trim()
+    .toUpperCase();
 
-    /*
-     * -----------------------------------------------
-     * QR TABLE FOUND
-     *
-     * /menu?table=T01
-     * -----------------------------------------------
-     */
-
-    if (qrTableId) {
-      switchTable(qrTableId);
-      return;
-    }
-
-    /*
-     * -----------------------------------------------
-     * NO QR TABLE
-     *
-     * Restore previous table session.
-     * -----------------------------------------------
-     */
-
+  // No table in URL
+  if (!qrTableId) {
     const existingSession =
       getTableSession();
 
     if (existingSession) {
-      setTableId(existingSession.tableId);
+      setTableId(
+        existingSession.tableId
+      );
     }
+
+    return;
   }
+
+  // We have a QR table
+  handleQrTable(qrTableId);
+}
 
   // =====================================================
   // SWITCH TABLE
   // =====================================================
 
-  function switchTable(newTableId) {
-    if (!newTableId) {
-      return;
-    }
+  function handleQrTable(newTableId) {
+  if (!newTableId) {
+    return;
+  }
 
-    const normalizedTableId =
-      String(newTableId)
-        .trim()
-        .toUpperCase();
+  const normalizedTableId =
+    String(newTableId)
+      .trim()
+      .toUpperCase();
 
-    /*
-     * -----------------------------------------------
-     * UPDATE TABLE SESSION
-     * -----------------------------------------------
-     */
+  const currentSession =
+    getTableSession();
 
-    const session =
-      setTableSession(
-        normalizedTableId
-      );
+  const currentTableId =
+    currentSession?.tableId || null;
 
-    if (!session) {
-      return;
-    }
+  /*
+   * Same table
+   */
+  if (
+    currentTableId ===
+    normalizedTableId
+  ) {
+    setTableId(
+      normalizedTableId
+    );
 
-    /*
-     * -----------------------------------------------
-     * KEEP EXISTING CART
-     *
-     * We DO NOT clear the cart.
-     *
-     * We simply update the table ID
-     * associated with the existing cart.
-     * -----------------------------------------------
-     */
+    return;
+  }
 
-    const currentCart = getCart();
+  /*
+   * Get current cart
+   */
+  const currentCart = getCart();
 
-    if (currentCart.length > 0) {
-      const updatedCart =
-        currentCart.map((item) => ({
-          ...item,
-          tableId:
-            normalizedTableId,
-        }));
-
-      saveCart(updatedCart);
-    }
-
-    /*
-     * -----------------------------------------------
-     * Update UI
-     * -----------------------------------------------
-     */
+  /*
+   * No cart
+   *
+   * Simply move to new table.
+   */
+  if (currentCart.length === 0) {
+    setTableSession(
+      normalizedTableId
+    );
 
     setTableId(
       normalizedTableId
     );
+
+    return;
   }
+
+  /*
+   * Different table + existing cart
+   *
+   * ASK USER
+   */
+
+  const shouldMoveCart =
+    window.confirm(
+      `Your current cart belongs to Table ${
+        currentTableId || "previous table"
+      }.\n\nYou have ${
+        currentCart.length
+      } item${
+        currentCart.length > 1
+          ? "s"
+          : ""
+      } in your cart.\n\nDo you want to move your cart to Table ${normalizedTableId}?`
+    );
+
+  /*
+   * YES
+   *
+   * Keep cart and change table
+   */
+  if (shouldMoveCart) {
+    const updatedCart =
+      currentCart.map(
+        (item) => ({
+          ...item,
+          tableId:
+            normalizedTableId,
+        })
+      );
+
+    saveCart(updatedCart);
+
+    setTableSession(
+      normalizedTableId
+    );
+
+    setTableId(
+      normalizedTableId
+    );
+
+    return;
+  }
+
+  /*
+   * NO
+   *
+   * New table gets empty cart
+   */
+  clearCart();
+
+  setTableSession(
+    normalizedTableId
+  );
+
+  setTableId(
+    normalizedTableId
+  );
+}
 
   // =====================================================
   // TABLE SESSION EVENT
