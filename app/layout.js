@@ -11,6 +11,9 @@ const dmSans = DM_Sans({
 export const metadata = {
   title: "Ramen Cafe",
   description: "Japanese-inspired ramen cafe and dining experience.",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({ children }) {
