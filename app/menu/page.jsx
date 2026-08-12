@@ -23,6 +23,7 @@ import {
   saveCart,
   clearCart
 } from "@/lib/cart";
+import Image from "next/image";
 
 export default function MenuPage() {
   // =====================================================
@@ -401,11 +402,9 @@ export default function MenuPage() {
             href="/"
             className="flex items-center gap-2.5 sm:gap-3"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#B83A2E] text-white sm:h-11 sm:w-11">
-              <span className="text-base sm:text-lg">
-                麺
-              </span>
-            </div>
+            <div className="flex h-16 w-16 items-center justify-center rounded-full ">
+                          <Image src="/logo.png" alt="Ramen Cafe Logo" width={50} height={50} />
+                        </div>
 
             <div>
               <p className="text-[12px] font-semibold tracking-[0.15em] sm:text-[15px] sm:tracking-[0.16em]">
