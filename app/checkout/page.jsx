@@ -14,67 +14,67 @@ import {
 
 import { getCurrentUser } from "@/lib/auth";
 import { getCart } from "@/lib/cart";
-import {
-  getTableId,
-  getMenuUrl,
-} from "@/lib/tableSession";
+import { getTableId, getMenuUrl } from "@/lib/tableSession";
 
 export default function CheckoutPage() {
-  // =====================================================
+  // ============================================================
   // STATE
-  // =====================================================
+  // ============================================================
 
   const [cart, setCart] = useState([]);
+  const [tableId, setTableId] = useState(null);
 
-  const [tableId, setTableId] =
-    useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [isLoading, setIsLoading] =
-    useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const [isLoggedIn, setIsLoggedIn] =
-    useState(false);
+  const [customer, setCustomer] = useState({
+    name: "",
+    phone: "",
+    email: "",
+  });
 
-  const [customer, setCustomer] =
-    useState({
-      name: "",
-      phone: "",
-      email: "",
-    });
-
-  // =====================================================
+  // ============================================================
   // INITIALIZE CHECKOUT
-  // =====================================================
+  // ============================================================
 
   useEffect(() => {
+    let mounted = true;
+
     async function initializeCheckout() {
       try {
-        // -----------------------------------------------
+        // --------------------------------------------------------
         // GET CART
-        // -----------------------------------------------
+        // --------------------------------------------------------
 
         const currentCart = getCart();
 
-        setCart(
-          Array.isArray(currentCart)
-            ? currentCart
-            : []
-        );
+        if (mounted) {
+          setCart(
+            Array.isArray(currentCart)
+              ? currentCart
+              : []
+          );
+        }
 
-        // -----------------------------------------------
-        // GET TABLE
-        // -----------------------------------------------
+        // --------------------------------------------------------
+        // GET ACTIVE TABLE
+        // --------------------------------------------------------
 
         const currentTable = getTableId();
 
-        setTableId(currentTable);
+        if (mounted) {
+          setTableId(currentTable || null);
+        }
 
-        // -----------------------------------------------
-        // CHECK SERVER AUTH
-        // -----------------------------------------------
+        // --------------------------------------------------------
+        // GET AUTHENTICATED USER
+        // --------------------------------------------------------
 
-        const user =
-          await getCurrentUser();
+        const user = await getCurrentUser();
+
+        if (!mounted) return;
 
         if (user) {
           setIsLoggedIn(true);
@@ -93,58 +93,49 @@ export default function CheckoutPage() {
           error
         );
 
-        setIsLoggedIn(false);
+        if (mounted) {
+          setIsLoggedIn(false);
+        }
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     initializeCheckout();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // =====================================================
+  // ============================================================
   // URLS
-  // =====================================================
-
-  /*
-   * Keep the current table throughout
-   * the complete checkout flow.
-   *
-   * Example:
-   *
-   * /checkout?table=T04
-   *        ↓
-   * /login?redirect=/checkout?table=T04
-   */
+  // ============================================================
 
   const checkoutUrl = tableId
-    ? `/checkout?table=${encodeURIComponent(
-        tableId
-      )}`
+    ? `/checkout?table=${encodeURIComponent(tableId)}`
     : "/checkout";
 
-  const loginUrl =
-    `/login?redirect=${encodeURIComponent(
-      checkoutUrl
-    )}`;
+  const loginUrl = `/login?redirect=${encodeURIComponent(
+    checkoutUrl
+  )}`;
 
   const cartUrl = tableId
-    ? `/cart?table=${encodeURIComponent(
-        tableId
-      )}`
+    ? `/cart?table=${encodeURIComponent(tableId)}`
     : "/cart";
 
-  // =====================================================
+  const menuUrl = getMenuUrl();
+
+  // ============================================================
   // TOTALS
-  // =====================================================
+  // ============================================================
 
   const subtotal = useMemo(() => {
-    return cart.reduce(
-      (total, item) =>
-        total +
-        Number(item.total || 0),
-      0
-    );
+    return cart.reduce((total, item) => {
+      return total + Number(item.total || 0);
+    }, 0);
   }, [cart]);
 
   const tax = useMemo(() => {
@@ -156,17 +147,14 @@ export default function CheckoutPage() {
   }, [subtotal, tax]);
 
   const totalItems = useMemo(() => {
-    return cart.reduce(
-      (total, item) =>
-        total +
-        Number(item.quantity || 0),
-      0
-    );
+    return cart.reduce((total, item) => {
+      return total + Number(item.quantity || 0);
+    }, 0);
   }, [cart]);
 
-  // =====================================================
+  // ============================================================
   // FORMAT PRICE
-  // =====================================================
+  // ============================================================
 
   function formatPrice(price) {
     return `₹${Math.round(
@@ -174,76 +162,279 @@ export default function CheckoutPage() {
     ).toLocaleString("en-IN")}`;
   }
 
-  // =====================================================
+  // ============================================================
   // UPDATE CUSTOMER
-  // =====================================================
+  // ============================================================
 
-  function updateCustomer(
-    field,
-    value
-  ) {
-    setCustomer(
-      (previous) => ({
-        ...previous,
-        [field]: value,
-      })
-    );
+  function updateCustomer(field, value) {
+    setCustomer((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
   }
 
-  // =====================================================
-  // PLACE ORDER
-  // =====================================================
+  // ============================================================
+  // NORMALIZE CART FOR ORDER API
+  // ============================================================
 
-  async function handlePlaceOrder(
-    event
-  ) {
+  function prepareOrderItems(items) {
+    return items.map((item) => {
+      const noodles =
+        item.noodles ??
+        item.noodle ??
+        null;
+
+      const spice =
+        item.spice ??
+        null;
+
+      const addons =
+        item.addons ??
+        item.addOns ??
+        [];
+
+      return {
+        ...item,
+
+        // ------------------------------------------------------
+        // Canonical Order item fields
+        // ------------------------------------------------------
+
+        productId:
+          item.productId ??
+          item.id ??
+          null,
+
+        name: item.name || "",
+
+        image: item.image || "",
+
+        price: Number(item.price || 0),
+
+        quantity: Number(
+          item.quantity || 1
+        ),
+
+        total: Number(
+          item.total || 0
+        ),
+
+        noodles,
+
+        spice,
+
+        addons: Array.isArray(addons)
+          ? addons
+          : [],
+      };
+    });
+  }
+
+  // ============================================================
+  // PLACE ORDER
+  // ============================================================
+
+  async function handlePlaceOrder(event) {
     event.preventDefault();
 
-    // ---------------------------------------------------
-    // NOT LOGGED IN
-    // ---------------------------------------------------
+    // ----------------------------------------------------------
+    // AUTH CHECK
+    // ----------------------------------------------------------
 
     if (!isLoggedIn) {
+      window.location.href = loginUrl;
       return;
     }
 
-    // ---------------------------------------------------
+    // ----------------------------------------------------------
+    // PREVENT DOUBLE SUBMISSION
+    // ----------------------------------------------------------
+
+    if (isSubmitting) {
+      return;
+    }
+
+    // ----------------------------------------------------------
     // CUSTOMER VALIDATION
-    // ---------------------------------------------------
+    // ----------------------------------------------------------
 
-    if (!customer.name.trim()) {
-      alert(
-        "Please enter your name."
-      );
+    const cleanName =
+      customer.name.trim();
 
+    if (!cleanName) {
+      alert("Please enter your name.");
       return;
     }
 
-    if (!customer.phone.trim()) {
-      alert(
-        "Please enter your phone number."
-      );
+    const cleanPhone =
+      customer.phone.replace(/\D/g, "");
 
+    if (
+      !/^[6-9]\d{9}$/.test(cleanPhone)
+    ) {
+      alert(
+        "Please enter a valid 10-digit Indian mobile number."
+      );
       return;
     }
 
-    // ---------------------------------------------------
-    // ORDER API
-    // ---------------------------------------------------
+    const cleanEmail =
+      customer.email.trim().toLowerCase();
 
-    /*
-     * Real Order API will be connected
-     * in the next build.
-     */
+    if (!cleanEmail) {
+      alert("Please enter your email address.");
+      return;
+    }
 
-    alert(
-      "Authentication is working. Order API is the next step."
-    );
+    // ----------------------------------------------------------
+    // TABLE VALIDATION
+    // ----------------------------------------------------------
+
+    if (!tableId) {
+      alert(
+        "No active table found. Please scan the table QR code again."
+      );
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // CART VALIDATION
+    // ----------------------------------------------------------
+
+    if (
+      !Array.isArray(cart) ||
+      cart.length === 0
+    ) {
+      alert(
+        "Your cart is empty."
+      );
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // PREPARE ITEMS
+    // ----------------------------------------------------------
+
+    const orderItems =
+      prepareOrderItems(cart);
+
+    // ----------------------------------------------------------
+    // SUBMIT
+    // ----------------------------------------------------------
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        credentials: "include",
+
+        body: JSON.stringify({
+          tableId,
+          items: orderItems,
+          customer: {
+            name: cleanName,
+            phone: cleanPhone,
+            email: cleanEmail,
+          },
+        }),
+      });
+
+      // --------------------------------------------------------
+      // PARSE RESPONSE SAFELY
+      // --------------------------------------------------------
+
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          "Invalid response from the order server."
+        );
+      }
+
+      // --------------------------------------------------------
+      // AUTH EXPIRED
+      // --------------------------------------------------------
+
+      if (response.status === 401) {
+        window.location.href = loginUrl;
+        return;
+      }
+
+      // --------------------------------------------------------
+      // API ERROR
+      // --------------------------------------------------------
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to place your order."
+        );
+      }
+
+      // --------------------------------------------------------
+      // VERIFY ORDER NUMBER
+      // --------------------------------------------------------
+
+      const orderNumber =
+        data?.order?.orderNumber;
+
+      if (!orderNumber) {
+        console.error(
+          "Invalid order response:",
+          data
+        );
+
+        throw new Error(
+          "Order was created but the order number was not returned."
+        );
+      }
+
+      // --------------------------------------------------------
+      // CLEAR LOCAL CART
+      // --------------------------------------------------------
+
+      localStorage.removeItem(
+        "ramen-cart"
+      );
+
+      window.dispatchEvent(
+        new Event("cart-updated")
+      );
+
+      // --------------------------------------------------------
+      // REDIRECT TO NEW ORDER PAGE
+      // --------------------------------------------------------
+
+      window.location.href =
+        `/orders/${encodeURIComponent(
+          orderNumber
+        )}`;
+    } catch (error) {
+      console.error(
+        "Place order error:",
+        error
+      );
+
+      alert(
+        error?.message ||
+          "Unable to place your order. Please try again."
+      );
+
+      setIsSubmitting(false);
+    }
   }
 
-  // =====================================================
+  // ============================================================
   // LOADING
-  // =====================================================
+  // ============================================================
 
   if (isLoading) {
     return (
@@ -263,9 +454,9 @@ export default function CheckoutPage() {
     );
   }
 
-  // =====================================================
+  // ============================================================
   // EMPTY CART
-  // =====================================================
+  // ============================================================
 
   if (cart.length === 0) {
     return (
@@ -275,30 +466,25 @@ export default function CheckoutPage() {
     );
   }
 
-  // =====================================================
+  // ============================================================
   // MAIN CHECKOUT
-  // =====================================================
+  // ============================================================
 
   return (
     <main className="min-h-screen bg-[#F5F0E8] pb-10">
-
-      {/* =================================================
+      {/* ========================================================
           HEADER
-      ================================================= */}
+      ======================================================== */}
 
       <header className="sticky top-0 z-40 border-b border-[#E5DED2] bg-[#F5F0E8]/95 backdrop-blur-xl">
-
         <div className="mx-auto flex h-[68px] max-w-[1100px] items-center justify-between px-4 sm:h-20 sm:px-8">
-
           {/* BACK TO CART */}
 
           <Link
             href={cartUrl}
             className="flex items-center gap-2 text-sm font-medium text-[#6B6258] transition hover:text-[#171513]"
           >
-            <ArrowLeft
-              size={17}
-            />
+            <ArrowLeft size={17} />
 
             Back to Cart
           </Link>
@@ -306,7 +492,6 @@ export default function CheckoutPage() {
           {/* LOGO */}
 
           <div className="hidden text-center sm:block">
-
             <p className="text-sm font-semibold tracking-[0.15em]">
               RAMEN CAFE
             </p>
@@ -314,39 +499,28 @@ export default function CheckoutPage() {
             <p className="text-[8px] tracking-[0.18em] text-[#6B6258]">
               ラーメンカフェ
             </p>
-
           </div>
 
           {/* ITEM COUNT */}
 
           <div className="flex items-center gap-2 text-[#6B6258]">
-
-            <ShoppingBag
-              size={18}
-            />
+            <ShoppingBag size={18} />
 
             <span className="text-sm font-medium">
               {totalItems}
             </span>
-
           </div>
-
         </div>
-
       </header>
 
-      {/* =================================================
+      {/* ========================================================
           CONTENT
-      ================================================= */}
+      ======================================================== */}
 
       <div className="mx-auto max-w-[1100px] px-4 py-7 sm:px-8 sm:py-10">
-
-        {/* =================================================
-            TITLE
-        ================================================= */}
+        {/* TITLE */}
 
         <div className="mb-7">
-
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E] sm:text-xs">
             Checkout
           </p>
@@ -359,43 +533,34 @@ export default function CheckoutPage() {
             Confirm your details before
             placing the order.
           </p>
-
         </div>
 
-        {/* =================================================
+        {/* ======================================================
             CHECKOUT GRID
-        ================================================= */}
+        ====================================================== */}
 
         <div className="grid gap-5 lg:grid-cols-[1fr_360px] lg:items-start">
-
-          {/* =================================================
+          {/* ====================================================
               LEFT
-          ================================================= */}
+          ==================================================== */}
 
           <div className="space-y-4">
-
-            {/* =================================================
+            {/* ==================================================
                 TABLE
-            ================================================= */}
+            ================================================== */}
 
             <section className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
-
               <div className="flex items-start gap-4">
-
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#171513] text-white">
-                  <MapPin
-                    size={19}
-                  />
+                  <MapPin size={19} />
                 </div>
 
                 <div className="flex-1">
-
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
                     Dining Location
                   </p>
 
                   <div className="mt-1 flex items-center justify-between gap-3">
-
                     <h2 className="text-lg font-semibold">
                       {tableId
                         ? `Table ${tableId}`
@@ -409,38 +574,28 @@ export default function CheckoutPage() {
                         Active
                       </span>
                     )}
-
                   </div>
 
                   <p className="mt-1 text-xs leading-5 text-[#6B6258]">
                     Your order will be prepared
                     and served at this table.
                   </p>
-
                 </div>
-
               </div>
-
             </section>
 
-            {/* =================================================
+            {/* ==================================================
                 CUSTOMER
-            ================================================= */}
+            ================================================== */}
 
             <section className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
-
               <div className="flex items-start justify-between gap-4">
-
                 <div className="flex gap-4">
-
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0E8] text-[#171513]">
-                    <UserRound
-                      size={19}
-                    />
+                    <UserRound size={19} />
                   </div>
 
                   <div>
-
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
                       Customer
                     </p>
@@ -450,28 +605,20 @@ export default function CheckoutPage() {
                         ? "Your details"
                         : "Login required"}
                     </h2>
-
                   </div>
-
                 </div>
 
                 {isLoggedIn && (
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-green-700">
-                    <Check
-                      size={15}
-                    />
+                    <Check size={15} />
                   </span>
                 )}
-
               </div>
 
-              {/* =================================================
-                  NOT LOGGED IN
-              ================================================= */}
+              {/* NOT LOGGED IN */}
 
               {!isLoggedIn ? (
                 <div className="mt-5 rounded-2xl bg-[#F5F0E8] p-4">
-
                   <p className="text-sm font-medium">
                     Please login to place
                     your order.
@@ -484,45 +631,29 @@ export default function CheckoutPage() {
                     before placing the order.
                   </p>
 
-                  {/* IMPORTANT:
-                      Direct Next.js navigation.
-                      No window.location.
-                      No getLoginUrl().
-                  */}
-
                   <Link
                     href={loginUrl}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171513] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#B83A2E]"
                   >
                     Login to Continue
 
-                    <ChevronRight
-                      size={16}
-                    />
+                    <ChevronRight size={16} />
                   </Link>
-
                 </div>
               ) : (
-
-                /* =================================================
-                    LOGGED IN
-                ================================================= */
+                /* LOGGED IN */
 
                 <div className="mt-5 space-y-4">
-
                   {/* NAME */}
 
                   <div>
-
                     <label className="mb-1.5 block text-xs font-medium">
                       Full Name
                     </label>
 
                     <input
                       type="text"
-                      value={
-                        customer.name
-                      }
+                      value={customer.name}
                       onChange={(event) =>
                         updateCustomer(
                           "name",
@@ -530,24 +661,22 @@ export default function CheckoutPage() {
                         )
                       }
                       placeholder="Enter your name"
+                      autoComplete="name"
                       className="w-full rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 py-3 text-sm outline-none transition placeholder:text-[#9A9186] focus:border-[#171513]"
                     />
-
                   </div>
 
                   {/* PHONE */}
 
                   <div>
-
                     <label className="mb-1.5 block text-xs font-medium">
                       Phone Number
                     </label>
 
                     <input
                       type="tel"
-                      value={
-                        customer.phone
-                      }
+                      inputMode="numeric"
+                      value={customer.phone}
                       onChange={(event) =>
                         updateCustomer(
                           "phone",
@@ -555,24 +684,21 @@ export default function CheckoutPage() {
                         )
                       }
                       placeholder="Enter your phone number"
+                      autoComplete="tel"
                       className="w-full rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 py-3 text-sm outline-none transition placeholder:text-[#9A9186] focus:border-[#171513]"
                     />
-
                   </div>
 
                   {/* EMAIL */}
 
                   <div>
-
                     <label className="mb-1.5 block text-xs font-medium">
                       Email
                     </label>
 
                     <input
                       type="email"
-                      value={
-                        customer.email
-                      }
+                      value={customer.email}
                       onChange={(event) =>
                         updateCustomer(
                           "email",
@@ -580,32 +706,25 @@ export default function CheckoutPage() {
                         )
                       }
                       placeholder="your@email.com"
+                      autoComplete="email"
                       className="w-full rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 py-3 text-sm outline-none transition placeholder:text-[#9A9186] focus:border-[#171513]"
                     />
-
                   </div>
-
                 </div>
               )}
-
             </section>
 
-            {/* =================================================
+            {/* ==================================================
                 EXPECTED TIME
-            ================================================= */}
+            ================================================== */}
 
             <section className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
-
               <div className="flex gap-4">
-
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0E8]">
-                  <Clock3
-                    size={19}
-                  />
+                  <Clock3 size={19} />
                 </div>
 
                 <div>
-
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
                     Preparation Time
                   </p>
@@ -620,114 +739,102 @@ export default function CheckoutPage() {
                     your order is accepted
                     by the kitchen.
                   </p>
-
                 </div>
-
               </div>
-
             </section>
-
           </div>
 
-          {/* =================================================
+          {/* ====================================================
               RIGHT SUMMARY
-          ================================================= */}
+          ==================================================== */}
 
           <aside className="lg:sticky lg:top-28">
-
             <div className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
-
               <h2 className="font-semibold">
                 Order Summary
               </h2>
 
-              {/* =================================================
-                  ITEMS
-              ================================================= */}
+              {/* ITEMS */}
 
               <div className="mt-5 space-y-4">
-
                 {cart.map(
-                  (item, index) => (
-                    <div
-                      key={
-                        item.cartItemId ||
-                        `${item.id || item.name}-${index}`
-                      }
-                      className="flex gap-3"
-                    >
+                  (item, index) => {
+                    const noodles =
+                      item.noodles ??
+                      item.noodle ??
+                      null;
 
-                      {/* IMAGE */}
+                    const spice =
+                      item.spice ??
+                      null;
 
-                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#F5F0E8]">
+                    return (
+                      <div
+                        key={
+                          item.cartItemId ||
+                          `${item.id || item.name}-${index}`
+                        }
+                        className="flex gap-3"
+                      >
+                        {/* IMAGE */}
 
-                        {item.image ? (
-                          <img
-                            src={
-                              item.image
-                            }
-                            alt={
-                              item.name
-                            }
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            🍜
-                          </div>
-                        )}
-
-                      </div>
-
-                      {/* DETAILS */}
-
-                      <div className="min-w-0 flex-1">
-
-                        <div className="flex justify-between gap-2">
-
-                          <p className="truncate text-sm font-medium">
-                            {item.name}
-                          </p>
-
-                          <p className="shrink-0 text-sm font-semibold">
-                            {formatPrice(
-                              item.total
-                            )}
-                          </p>
-
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#F5F0E8]">
+                          {item.image ? (
+                            <img
+                              src={item.image}
+                              alt={
+                                item.name ||
+                                "Food item"
+                              }
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              🍜
+                            </div>
+                          )}
                         </div>
 
-                        <p className="mt-1 text-[10px] text-[#8A8177]">
-                          Qty{" "}
-                          {item.quantity}
-                        </p>
+                        {/* DETAILS */}
 
-                        {item.noodle && (
-                          <p className="text-[10px] text-[#8A8177]">
-                            {item.noodle}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex justify-between gap-2">
+                            <p className="truncate text-sm font-medium">
+                              {item.name}
+                            </p>
 
-                            {item.spice
-                              ? ` · ${item.spice}`
-                              : ""}
+                            <p className="shrink-0 text-sm font-semibold">
+                              {formatPrice(
+                                item.total
+                              )}
+                            </p>
+                          </div>
+
+                          <p className="mt-1 text-[10px] text-[#8A8177]">
+                            Qty{" "}
+                            {item.quantity}
                           </p>
-                        )}
 
+                          {noodles && (
+                            <p className="text-[10px] text-[#8A8177]">
+                              {noodles}
+
+                              {spice
+                                ? ` · ${spice}`
+                                : ""}
+                            </p>
+                          )}
+                        </div>
                       </div>
-
-                    </div>
-                  )
+                    );
+                  }
                 )}
-
               </div>
 
-              {/* =================================================
-                  PRICE
-              ================================================= */}
+              {/* PRICE */}
 
               <div className="mt-5 space-y-3 border-t border-[#E5DED2] pt-5">
-
                 <div className="flex justify-between text-sm">
-
                   <span className="text-[#6B6258]">
                     Subtotal
                   </span>
@@ -737,43 +844,30 @@ export default function CheckoutPage() {
                       subtotal
                     )}
                   </span>
-
                 </div>
 
                 <div className="flex justify-between text-sm">
-
                   <span className="text-[#6B6258]">
                     GST (5%)
                   </span>
 
                   <span>
-                    {formatPrice(
-                      tax
-                    )}
+                    {formatPrice(tax)}
                   </span>
-
                 </div>
-
               </div>
 
-              {/* =================================================
-                  TOTAL
-              ================================================= */}
+              {/* TOTAL */}
 
               <div className="mt-5 flex items-end justify-between border-t border-[#E5DED2] pt-5">
-
                 <div>
-
                   <p className="text-xs text-[#6B6258]">
                     Total
                   </p>
 
                   <p className="mt-1 text-2xl font-semibold">
-                    {formatPrice(
-                      total
-                    )}
+                    {formatPrice(total)}
                   </p>
-
                 </div>
 
                 <p className="text-[10px] text-[#8A8177]">
@@ -782,12 +876,9 @@ export default function CheckoutPage() {
                     ? "item"
                     : "items"}
                 </p>
-
               </div>
 
-              {/* =================================================
-                  PLACE ORDER / LOGIN
-              ================================================= */}
+              {/* PLACE ORDER */}
 
               {isLoggedIn ? (
                 <form
@@ -795,18 +886,31 @@ export default function CheckoutPage() {
                     handlePlaceOrder
                   }
                 >
-
                   <button
                     type="submit"
-                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#B83A2E] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#171513]"
+                    disabled={isSubmitting}
+                    className={`mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-semibold text-white transition ${
+                      isSubmitting
+                        ? "cursor-not-allowed bg-[#8F7772]"
+                        : "bg-[#B83A2E] hover:bg-[#171513]"
+                    }`}
                   >
-                    Place Order
+                    {isSubmitting ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
 
-                    <ChevronRight
-                      size={17}
-                    />
+                        Placing Order...
+                      </>
+                    ) : (
+                      <>
+                        Place Order
+
+                        <ChevronRight
+                          size={17}
+                        />
+                      </>
+                    )}
                   </button>
-
                 </form>
               ) : (
                 <Link
@@ -825,68 +929,50 @@ export default function CheckoutPage() {
                 You can review your order
                 before final submission.
               </p>
-
             </div>
 
-            {/* =================================================
-                BACK TO MENU
-            ================================================= */}
+            {/* BACK TO MENU */}
 
             <Link
-              href={getMenuUrl()}
+              href={menuUrl}
               className="mt-3 flex items-center justify-center gap-2 rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] px-5 py-3.5 text-sm font-medium transition hover:bg-[#F5F0E8]"
             >
-              <ArrowLeft
-                size={15}
-              />
+              <ArrowLeft size={15} />
 
               Continue Shopping
             </Link>
-
           </aside>
-
         </div>
-
       </div>
-
     </main>
   );
 }
 
-// =======================================================
+// ============================================================
 // EMPTY CHECKOUT
-// =======================================================
+// ============================================================
 
-function EmptyCheckout({
-  tableId,
-}) {
-  const menuUrl =
-    getMenuUrl();
+function EmptyCheckout({ tableId }) {
+  const menuUrl = getMenuUrl();
 
   return (
     <main className="min-h-screen bg-[#F5F0E8]">
-
-      {/* =================================================
+      {/* ======================================================
           HEADER
-      ================================================= */}
+      ====================================================== */}
 
       <header className="border-b border-[#E5DED2]">
-
         <div className="mx-auto flex h-20 max-w-[1100px] items-center justify-between px-4 sm:px-8">
-
           <Link
             href={menuUrl}
             className="flex items-center gap-2 text-sm font-medium text-[#6B6258]"
           >
-            <ArrowLeft
-              size={17}
-            />
+            <ArrowLeft size={17} />
 
             Back to Menu
           </Link>
 
           <div className="text-center">
-
             <p className="text-sm font-semibold tracking-[0.15em]">
               RAMEN CAFE
             </p>
@@ -894,25 +980,18 @@ function EmptyCheckout({
             <p className="text-[8px] tracking-[0.18em] text-[#6B6258]">
               ラーメンカフェ
             </p>
-
           </div>
 
-          <ShoppingBag
-            size={18}
-          />
-
+          <ShoppingBag size={18} />
         </div>
-
       </header>
 
-      {/* =================================================
+      {/* ======================================================
           EMPTY STATE
-      ================================================= */}
+      ====================================================== */}
 
       <div className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4">
-
         <div className="w-full max-w-md text-center">
-
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-[#FFFDF8] text-5xl">
             🍜
           </div>
@@ -935,11 +1014,9 @@ function EmptyCheckout({
 
           {tableId && (
             <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full bg-[#171513] px-4 py-2 text-xs font-medium text-white">
-
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
 
               Table {tableId}
-
             </div>
           )}
 
@@ -951,11 +1028,8 @@ function EmptyCheckout({
           >
             Explore Menu
           </Link>
-
         </div>
-
       </div>
-
     </main>
   );
 }
