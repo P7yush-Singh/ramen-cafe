@@ -56,7 +56,10 @@ function errorResponse(
 // BASIC HELPERS
 // ============================================================
 
-function normalizeText(value, maxLength = 500) {
+function normalizeText(
+  value,
+  maxLength = 500
+) {
   return String(value ?? "")
     .trim()
     .slice(0, maxLength);
@@ -71,15 +74,18 @@ function normalizeNumber(value) {
 }
 
 function roundMoney(value) {
-  const number = normalizeNumber(value);
+  const number =
+    normalizeNumber(value);
 
-  return Math.round(
-    (number + Number.EPSILON) * 100
-  ) / 100;
+  return (
+    Math.round(
+      (number + Number.EPSILON) * 100
+    ) / 100
+  );
 }
 
 // ============================================================
-// TABLE
+// TABLE HELPERS
 // ============================================================
 
 function normalizeTableId(value) {
@@ -89,14 +95,13 @@ function normalizeTableId(value) {
 }
 
 function isValidTableId(tableId) {
-
   return /^T[A-Z0-9-]+$/.test(
     tableId
   );
 }
 
 // ============================================================
-// CUSTOMER VALIDATION
+// CUSTOMER HELPERS
 // ============================================================
 
 function normalizePhone(value) {
@@ -139,11 +144,11 @@ function generateOrderNumber() {
     ).padStart(2, "0"),
   ].join("");
 
-
-  const uniquePart = randomUUID()
-    .replace(/-/g, "")
-    .slice(0, 8)
-    .toUpperCase();
+  const uniquePart =
+    randomUUID()
+      .replace(/-/g, "")
+      .slice(0, 8)
+      .toUpperCase();
 
   return `RC-${date}-${uniquePart}`;
 }
@@ -161,23 +166,26 @@ function normalizeAddons(addons) {
     .map((addon) => {
       if (
         !addon ||
-        typeof addon !== "object"
+        typeof addon !== "object" ||
+        Array.isArray(addon)
       ) {
         return null;
       }
 
-      const name = normalizeText(
-        addon.name ||
-          addon.title ||
-          "",
-        100
-      );
+      const name =
+        normalizeText(
+          addon.name ||
+            addon.title ||
+            "",
+          100
+        );
 
-      const price = roundMoney(
-        normalizeNumber(
-          addon.price
-        )
-      );
+      const price =
+        roundMoney(
+          normalizeNumber(
+            addon.price
+          )
+        );
 
       if (!name) {
         return null;
@@ -199,7 +207,7 @@ function normalizeAddons(addons) {
 }
 
 // ============================================================
-// CART ITEM
+// NORMALIZE CART ITEM
 // ============================================================
 
 function normalizeCartItem(
@@ -275,11 +283,12 @@ function normalizeCartItem(
   // QUANTITY
   // ----------------------------------------------------------
 
-  const quantity = Math.floor(
-    normalizeNumber(
-      item.quantity
-    )
-  );
+  const quantity =
+    Math.floor(
+      normalizeNumber(
+        item.quantity
+      )
+    );
 
   if (
     quantity < 1 ||
@@ -319,7 +328,7 @@ function normalizeCartItem(
     );
 
   // ----------------------------------------------------------
-  // FRONTEND PRICE
+  // PRICE
   // ----------------------------------------------------------
 
   const suppliedPrice =
@@ -328,10 +337,6 @@ function normalizeCartItem(
         item.price
       )
     );
-
-  // ----------------------------------------------------------
-  // FRONTEND TOTAL
-  // ----------------------------------------------------------
 
   const suppliedTotal =
     roundMoney(
@@ -347,14 +352,11 @@ function normalizeCartItem(
   const addonUnitTotal =
     roundMoney(
       addons.reduce(
-        (sum, addon) => {
-          return (
-            sum +
-            normalizeNumber(
-              addon.price
-            )
-          );
-        },
+        (sum, addon) =>
+          sum +
+          normalizeNumber(
+            addon.price
+          ),
         0
       )
     );
@@ -367,38 +369,30 @@ function normalizeCartItem(
     suppliedPrice;
 
   /*
-   * Backward compatibility:
+   * Backward compatibility for existing
+   * cart objects where price was saved as 0.
    *
-   * Some existing cart objects have:
+   * Example:
    *
-   * price: 0
-   * total: 269
-   *
-   * with:
-   *
-   * Extra Egg: 40
-   * Extra Noodles: 50
-   *
-   * Therefore:
+   * Product      ₹179
+   * Extra Egg     ₹40
+   * Extra Noodles ₹50
+   * Total        ₹269
    *
    * 269 - 40 - 50 = 179
-   *
-   * This allows the order to store:
-   *
-   * price: 179
    */
 
   if (
     price <= 0 &&
     suppliedTotal > 0
   ) {
-    const totalAddonAmount =
+    const addonTotal =
       addonUnitTotal *
       quantity;
 
     const baseTotal =
       suppliedTotal -
-      totalAddonAmount;
+      addonTotal;
 
     const derivedPrice =
       baseTotal /
@@ -431,7 +425,7 @@ function normalizeCartItem(
   }
 
   // ----------------------------------------------------------
-  // CALCULATE SERVER TOTAL
+  // SERVER CALCULATION
   // ----------------------------------------------------------
 
   const baseTotal =
@@ -447,28 +441,11 @@ function normalizeCartItem(
         addonTotal
     );
 
-  // ----------------------------------------------------------
-  // FINAL ITEM TOTAL
-  // ----------------------------------------------------------
-
-  /*
-   * Prefer calculated server total.
-   *
-   * This prevents a malformed `item.total`
-   * from changing the final amount when the
-   * required price information is available.
-   *
-   * If your Product collection is connected
-   * later, price itself should also be fetched
-   * from MongoDB.
-   */
-
-  const total =
-    calculatedTotal;
-
   if (
-    !Number.isFinite(total) ||
-    total <= 0
+    !Number.isFinite(
+      calculatedTotal
+    ) ||
+    calculatedTotal <= 0
   ) {
     throw new Error(
       `Unable to calculate total for ${name}.`
@@ -476,7 +453,7 @@ function normalizeCartItem(
   }
 
   // ----------------------------------------------------------
-  // RETURN NORMALIZED ITEM
+  // NORMALIZED ITEM
   // ----------------------------------------------------------
 
   return {
@@ -488,7 +465,7 @@ function normalizeCartItem(
     noodles,
     spice,
     addons,
-    total,
+    total: calculatedTotal,
   };
 }
 
@@ -511,7 +488,319 @@ function getPreparationMinutes() {
 }
 
 // ============================================================
+// GET /api/orders
+//
+// Used by:
+// /orders
+//
+// Returns the logged-in user's orders.
+// ============================================================
+
+export async function GET(request) {
+  try {
+    // ========================================================
+    // 1. AUTHENTICATION
+    // ========================================================
+
+    const user =
+      await getServerUser();
+
+    if (!user) {
+      return errorResponse(
+        "You must be logged in to view your orders.",
+        401
+      );
+    }
+
+    // ========================================================
+    // 2. USER ID
+    // ========================================================
+
+    const userId =
+      user?._id
+        ? String(user._id)
+        : "";
+
+    if (
+      !userId ||
+      !mongoose.Types.ObjectId.isValid(
+        userId
+      )
+    ) {
+      return errorResponse(
+        "Invalid authenticated user.",
+        401
+      );
+    }
+
+    const userObjectId =
+      new mongoose.Types.ObjectId(
+        userId
+      );
+
+    // ========================================================
+    // 3. DATABASE
+    // ========================================================
+
+    await connectDB();
+
+    // ========================================================
+    // 4. QUERY PARAMETERS
+    // ========================================================
+
+    const url =
+      new URL(request.url);
+
+    const searchParams =
+      url.searchParams;
+
+    const pageValue =
+      Number(
+        searchParams.get(
+          "page"
+        ) || 1
+      );
+
+    const limitValue =
+      Number(
+        searchParams.get(
+          "limit"
+        ) || 10
+      );
+
+    const page =
+      Number.isFinite(
+        pageValue
+      ) &&
+      pageValue >= 1
+        ? Math.floor(
+            pageValue
+          )
+        : 1;
+
+    const limit =
+      Number.isFinite(
+        limitValue
+      ) &&
+      limitValue >= 1
+        ? Math.min(
+            Math.floor(
+              limitValue
+            ),
+            50
+          )
+        : 10;
+
+    const skip =
+      (page - 1) *
+      limit;
+
+    // ========================================================
+    // 5. STATUS FILTER
+    // ========================================================
+
+    const filter = {
+      userId:
+        userObjectId,
+    };
+
+    const status =
+      normalizeText(
+        searchParams.get(
+          "status"
+        ) || "",
+        50
+      ).toLowerCase();
+
+    if (status) {
+      filter.status =
+        status;
+    }
+
+    // ========================================================
+    // 6. FETCH ORDERS
+    // ========================================================
+
+    const [
+      orders,
+      totalOrders,
+    ] =
+      await Promise.all([
+        Order.find(filter)
+          .sort({
+            createdAt: -1,
+          })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+
+        Order.countDocuments(
+          filter
+        ),
+      ]);
+
+    // ========================================================
+    // 7. NORMALIZE ORDERS
+    // ========================================================
+
+    const normalizedOrders =
+      orders.map(
+        (order) => ({
+          id:
+            order._id
+              ? String(
+                  order._id
+                )
+              : null,
+
+          orderId:
+            order._id
+              ? String(
+                  order._id
+                )
+              : null,
+
+          orderNumber:
+            order.orderNumber,
+
+          tableId:
+            order.tableId,
+
+          customer:
+            order.customer ||
+            null,
+
+          items:
+            Array.isArray(
+              order.items
+            )
+              ? order.items
+              : [],
+
+          subtotal:
+            Number(
+              order.subtotal ||
+                0
+            ),
+
+          taxRate:
+            Number(
+              order.taxRate ||
+                0
+            ),
+
+          taxAmount:
+            Number(
+              order.taxAmount ||
+                0
+            ),
+
+          total:
+            Number(
+              order.total ||
+                0
+            ),
+
+          status:
+            order.status,
+
+          paymentStatus:
+            order.paymentStatus,
+
+          paymentMethod:
+            order.paymentMethod ||
+            null,
+
+          estimatedPreparationMinutes:
+            order.estimatedPreparationMinutes ||
+            null,
+
+          estimatedReadyAt:
+            order.estimatedReadyAt ||
+            null,
+
+          createdAt:
+            order.createdAt,
+
+          updatedAt:
+            order.updatedAt,
+        })
+      );
+
+    // ========================================================
+    // 8. PAGINATION
+    // ========================================================
+
+    const totalPages =
+      totalOrders > 0
+        ? Math.ceil(
+            totalOrders /
+              limit
+          )
+        : 0;
+
+    // ========================================================
+    // 9. RESPONSE
+    // ========================================================
+
+    return successResponse({
+      orders:
+        normalizedOrders,
+
+      pagination: {
+        page,
+        limit,
+        totalOrders,
+        totalPages,
+
+        hasNextPage:
+          page <
+          totalPages,
+
+        hasPreviousPage:
+          page > 1,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "GET /api/orders error:",
+      error
+    );
+
+    // ========================================================
+    // DATABASE ERRORS
+    // ========================================================
+
+    if (
+      error?.name ===
+        "MongoServerSelectionError" ||
+      error?.name ===
+        "MongoNetworkError" ||
+      error?.code ===
+        "ECONNREFUSED" ||
+      error?.code ===
+        "ETIMEDOUT" ||
+      error?.code ===
+        "ENOTFOUND"
+    ) {
+      return errorResponse(
+        "Database is temporarily unavailable. Please try again.",
+        503
+      );
+    }
+
+    return errorResponse(
+      error?.message ||
+        "Unable to load orders.",
+      500
+    );
+  }
+}
+
+// ============================================================
 // POST /api/orders
+//
+// Creates a new order.
 // ============================================================
 
 export async function POST(
@@ -550,7 +839,8 @@ export async function POST(
 
     if (
       !body ||
-      typeof body !== "object" ||
+      typeof body !==
+        "object" ||
       Array.isArray(body)
     ) {
       return errorResponse(
@@ -681,19 +971,17 @@ export async function POST(
     }
 
     // ========================================================
-    // 5. CART / ITEMS
+    // 5. ITEMS / CART
     // ========================================================
 
     /*
-     * Current architecture:
+     * Support both:
      *
-     * items: [...]
+     * body.items
      *
-     * Old architecture:
+     * and older:
      *
-     * cart: [...]
-     *
-     * Support both during the migration.
+     * body.cart
      */
 
     const rawItems =
@@ -809,7 +1097,9 @@ export async function POST(
       );
 
     if (
-      !Number.isFinite(total) ||
+      !Number.isFinite(
+        total
+      ) ||
       total <= 0
     ) {
       return errorResponse(
@@ -834,7 +1124,7 @@ export async function POST(
       );
 
     // ========================================================
-    // 11. DATABASE CONNECTION
+    // 11. DATABASE
     // ========================================================
 
     await connectDB();
@@ -867,21 +1157,6 @@ export async function POST(
     // ========================================================
     // 13. CREATE ORDER
     // ========================================================
-
-    /*
-     * IMPORTANT:
-     *
-     * We intentionally do NOT do:
-     *
-     * Order.exists()
-     *
-     * before creating the order.
-     *
-     * MongoDB's unique index is the authority.
-     *
-     * If a duplicate somehow happens,
-     * we generate another number and retry.
-     */
 
     let order = null;
 
@@ -940,15 +1215,11 @@ export async function POST(
             estimatedReadyAt,
           });
 
-        // SUCCESS
         break;
       } catch (error) {
-        /*
-         * Duplicate key.
-         *
-         * Generate a completely new order
-         * number and retry.
-         */
+        // ----------------------------------------------------
+        // DUPLICATE ORDER NUMBER
+        // ----------------------------------------------------
 
         if (
           error?.code ===
@@ -973,10 +1244,6 @@ export async function POST(
           continue;
         }
 
-        // Any other Mongo/Mongoose error
-        // should NOT be treated as an
-        // order-number collision.
-
         throw error;
       }
     }
@@ -993,7 +1260,7 @@ export async function POST(
     }
 
     // ========================================================
-    // 15. SUCCESS RESPONSE
+    // 15. RESPONSE
     // ========================================================
 
     return successResponse(
@@ -1051,18 +1318,14 @@ export async function POST(
       201
     );
   } catch (error) {
-    // ========================================================
-    // GLOBAL ERROR HANDLER
-    // ========================================================
-
     console.error(
       "POST /api/orders error:",
       error
     );
 
-    // --------------------------------------------------------
+    // ========================================================
     // MONGOOSE VALIDATION
-    // --------------------------------------------------------
+    // ========================================================
 
     if (
       error?.name ===
@@ -1085,9 +1348,9 @@ export async function POST(
       );
     }
 
-    // --------------------------------------------------------
-    // INVALID OBJECT ID
-    // --------------------------------------------------------
+    // ========================================================
+    // CAST ERROR
+    // ========================================================
 
     if (
       error?.name ===
@@ -1099,9 +1362,9 @@ export async function POST(
       );
     }
 
-    // --------------------------------------------------------
-    // MONGODB CONNECTION
-    // --------------------------------------------------------
+    // ========================================================
+    // DATABASE CONNECTION
+    // ========================================================
 
     if (
       error?.name ===
@@ -1121,13 +1384,13 @@ export async function POST(
       );
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // DUPLICATE KEY
-    // --------------------------------------------------------
+    // ========================================================
 
     if (
       error?.code ===
-        11000
+      11000
     ) {
       return errorResponse(
         "Duplicate order data detected. Please try again.",
@@ -1135,9 +1398,9 @@ export async function POST(
       );
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // FALLBACK
-    // --------------------------------------------------------
+    // ========================================================
 
     return errorResponse(
       error?.message ||
