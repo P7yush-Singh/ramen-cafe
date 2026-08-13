@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
 import {
   Search,
   ShoppingCart,
@@ -9,7 +10,6 @@ import {
   X,
 } from "lucide-react";
 
-import { categories, products } from "@/data/products";
 import MenuCard from "@/components/MenuCard";
 import ProductCustomization from "@/components/ProductCustomization";
 
@@ -21,8 +21,9 @@ import {
 import {
   getCart,
   saveCart,
-  clearCart
+  clearCart,
 } from "@/lib/cart";
+
 import Image from "next/image";
 
 export default function MenuPage() {
@@ -30,8 +31,16 @@ export default function MenuPage() {
   // STATE
   // =====================================================
 
+  const [products, setProducts] = useState([]);
+
   const [activeCategory, setActiveCategory] =
     useState("all");
+
+  const [isLoadingProducts, setIsLoadingProducts] =
+    useState(true);
+
+  const [productError, setProductError] =
+    useState("");
 
   const [search, setSearch] = useState("");
 
@@ -42,9 +51,64 @@ export default function MenuPage() {
 
   const [tableId, setTableId] = useState(null);
 
-  const [isDesktop, setIsDesktop] = useState(false);
+  const [isDesktop, setIsDesktop] =
+    useState(false);
 
   const [toast, setToast] = useState(null);
+
+  // =====================================================
+  // LOAD PRODUCTS
+  // =====================================================
+
+  async function loadProducts() {
+    try {
+      setIsLoadingProducts(true);
+      setProductError("");
+
+      const response = await fetch(
+        "/api/products",
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Unable to load menu."
+        );
+      }
+
+      const normalizedProducts =
+        Array.isArray(data.products)
+          ? data.products.map((product) => ({
+              ...product,
+
+              // MongoDB ObjectId -> string ID
+              id: product._id?.toString(),
+            }))
+          : [];
+
+      setProducts(normalizedProducts);
+    } catch (error) {
+      console.error(
+        "Menu products error:",
+        error
+      );
+
+      setProductError(
+        error.message ||
+          "Unable to load menu."
+      );
+
+      setProducts([]);
+    } finally {
+      setIsLoadingProducts(false);
+    }
+  }
 
   // =====================================================
   // INITIALIZATION
@@ -52,6 +116,7 @@ export default function MenuPage() {
 
   useEffect(() => {
     initializePage();
+    loadProducts();
 
     window.addEventListener(
       "resize",
@@ -90,11 +155,6 @@ export default function MenuPage() {
       );
 
       window.removeEventListener(
-        "cart-updated",
-        updateCartCount
-      );
-
-      window.removeEventListener(
         "table-session-updated",
         handleTableSessionUpdate
       );
@@ -118,124 +178,154 @@ export default function MenuPage() {
   // =====================================================
 
   function initializeTable() {
-  const params = new URLSearchParams(
-    window.location.search
-  );
+    const params = new URLSearchParams(
+      window.location.search
+    );
 
-  const qrTableId = params
-    .get("table")
-    ?.trim()
-    .toUpperCase();
+    const qrTableId = params
+      .get("table")
+      ?.trim()
+      .toUpperCase();
 
-  // No table in URL
-  if (!qrTableId) {
-    const existingSession =
-      getTableSession();
+    // ---------------------------------------------------
+    // NO TABLE IN URL
+    // ---------------------------------------------------
 
-    if (existingSession) {
-      setTableId(
-        existingSession.tableId
-      );
+    if (!qrTableId) {
+      const existingSession =
+        getTableSession();
+
+      if (existingSession) {
+        setTableId(
+          existingSession.tableId
+        );
+      }
+
+      return;
     }
 
-    return;
-  }
+    // ---------------------------------------------------
+    // WE HAVE A QR TABLE
+    // ---------------------------------------------------
 
-  // We have a QR table
-  handleQrTable(qrTableId);
-}
+    handleQrTable(qrTableId);
+  }
 
   // =====================================================
   // SWITCH TABLE
   // =====================================================
 
   function handleQrTable(newTableId) {
-  if (!newTableId) {
-    return;
-  }
+    if (!newTableId) {
+      return;
+    }
 
-  const normalizedTableId =
-    String(newTableId)
-      .trim()
-      .toUpperCase();
+    const normalizedTableId =
+      String(newTableId)
+        .trim()
+        .toUpperCase();
 
-  const currentSession =
-    getTableSession();
+    const currentSession =
+      getTableSession();
 
-  const currentTableId =
-    currentSession?.tableId || null;
+    const currentTableId =
+      currentSession?.tableId || null;
 
-  /*
-   * Same table
-   */
-  if (
-    currentTableId ===
-    normalizedTableId
-  ) {
-    setTableId(
+    // ---------------------------------------------------
+    // SAME TABLE
+    // ---------------------------------------------------
+
+    if (
+      currentTableId ===
       normalizedTableId
-    );
-
-    return;
-  }
-
-  /*
-   * Get current cart
-   */
-  const currentCart = getCart();
-
-  /*
-   * No cart
-   *
-   * Simply move to new table.
-   */
-  if (currentCart.length === 0) {
-    setTableSession(
-      normalizedTableId
-    );
-
-    setTableId(
-      normalizedTableId
-    );
-
-    return;
-  }
-
-  /*
-   * Different table + existing cart
-   *
-   * ASK USER
-   */
-
-  const shouldMoveCart =
-    window.confirm(
-      `Your current cart belongs to Table ${
-        currentTableId || "previous table"
-      }.\n\nYou have ${
-        currentCart.length
-      } item${
-        currentCart.length > 1
-          ? "s"
-          : ""
-      } in your cart.\n\nDo you want to move your cart to Table ${normalizedTableId}?`
-    );
-
-  /*
-   * YES
-   *
-   * Keep cart and change table
-   */
-  if (shouldMoveCart) {
-    const updatedCart =
-      currentCart.map(
-        (item) => ({
-          ...item,
-          tableId:
-            normalizedTableId,
-        })
+    ) {
+      setTableId(
+        normalizedTableId
       );
 
-    saveCart(updatedCart);
+      return;
+    }
+
+    // ---------------------------------------------------
+    // GET CURRENT CART
+    // ---------------------------------------------------
+
+    const currentCart = getCart();
+
+    // ---------------------------------------------------
+    // NO CART
+    //
+    // Simply move to new table.
+    // ---------------------------------------------------
+
+    if (currentCart.length === 0) {
+      setTableSession(
+        normalizedTableId
+      );
+
+      setTableId(
+        normalizedTableId
+      );
+
+      return;
+    }
+
+    // ---------------------------------------------------
+    // DIFFERENT TABLE + EXISTING CART
+    //
+    // ASK USER
+    // ---------------------------------------------------
+
+    const shouldMoveCart =
+      window.confirm(
+        `Your current cart belongs to Table ${
+          currentTableId ||
+          "previous table"
+        }.\n\nYou have ${
+          currentCart.length
+        } item${
+          currentCart.length > 1
+            ? "s"
+            : ""
+        } in your cart.\n\nDo you want to move your cart to Table ${normalizedTableId}?`
+      );
+
+    // ---------------------------------------------------
+    // YES
+    //
+    // Keep cart and change table
+    // ---------------------------------------------------
+
+    if (shouldMoveCart) {
+      const updatedCart =
+        currentCart.map(
+          (item) => ({
+            ...item,
+            tableId:
+              normalizedTableId,
+          })
+        );
+
+      saveCart(updatedCart);
+
+      setTableSession(
+        normalizedTableId
+      );
+
+      setTableId(
+        normalizedTableId
+      );
+
+      return;
+    }
+
+    // ---------------------------------------------------
+    // NO
+    //
+    // New table gets empty cart
+    // ---------------------------------------------------
+
+    clearCart();
 
     setTableSession(
       normalizedTableId
@@ -244,25 +334,7 @@ export default function MenuPage() {
     setTableId(
       normalizedTableId
     );
-
-    return;
   }
-
-  /*
-   * NO
-   *
-   * New table gets empty cart
-   */
-  clearCart();
-
-  setTableSession(
-    normalizedTableId
-  );
-
-  setTableId(
-    normalizedTableId
-  );
-}
 
   // =====================================================
   // TABLE SESSION EVENT
@@ -273,7 +345,9 @@ export default function MenuPage() {
       getTableSession();
 
     if (session) {
-      setTableId(session.tableId);
+      setTableId(
+        session.tableId
+      );
     } else {
       setTableId(null);
     }
@@ -300,7 +374,9 @@ export default function MenuPage() {
       const count = cart.reduce(
         (total, item) =>
           total +
-          Number(item.quantity || 0),
+          Number(
+            item.quantity || 0
+          ),
         0
       );
 
@@ -346,13 +422,44 @@ export default function MenuPage() {
   }
 
   // =====================================================
+  // CATEGORIES
+  // =====================================================
+
+  const categories = useMemo(() => {
+    const uniqueCategories = [
+      ...new Set(
+        products
+          .map((product) =>
+            product.category?.trim()
+          )
+          .filter(Boolean)
+      ),
+    ];
+
+    return [
+      {
+        id: "all",
+        name: "All",
+      },
+
+      ...uniqueCategories.map(
+        (category) => ({
+          id: category,
+          name: category,
+        })
+      ),
+    ];
+  }, [products]);
+
+  // =====================================================
   // FILTER PRODUCTS
   // =====================================================
 
   const filteredProducts = useMemo(() => {
-    const searchValue = search
-      .trim()
-      .toLowerCase();
+    const searchValue =
+      search
+        .trim()
+        .toLowerCase();
 
     return products.filter(
       (product) => {
@@ -361,14 +468,22 @@ export default function MenuPage() {
           product.category ===
             activeCategory;
 
+        const name =
+          product.name
+            ?.toLowerCase() || "";
+
+        const description =
+          product.description
+            ?.toLowerCase() || "";
+
         const searchMatch =
           !searchValue ||
-          product.name
-            .toLowerCase()
-            .includes(searchValue) ||
-          product.description
-            .toLowerCase()
-            .includes(searchValue);
+          name.includes(
+            searchValue
+          ) ||
+          description.includes(
+            searchValue
+          );
 
         return (
           categoryMatch &&
@@ -377,6 +492,7 @@ export default function MenuPage() {
       }
     );
   }, [
+    products,
     activeCategory,
     search,
   ]);
@@ -387,24 +503,26 @@ export default function MenuPage() {
 
   return (
     <main className="min-h-screen bg-[#F5F0E8] pb-20 lg:pb-0">
-
       {/* =================================================
           HEADER
       ================================================= */}
 
       <header className="sticky top-0 z-40 border-b border-[#E5DED2] bg-[#F5F0E8]/95 backdrop-blur-xl">
-
         <div className="mx-auto flex h-[68px] max-w-[1440px] items-center justify-between px-4 sm:h-20 sm:px-8 lg:px-12">
-
           {/* Brand */}
 
           <Link
             href="/"
             className="flex items-center gap-2.5 sm:gap-3"
           >
-            <div className="flex h-16 w-16 items-center justify-center rounded-full ">
-                          <Image src="/logo.png" alt="Ramen Cafe Logo" width={50} height={50} />
-                        </div>
+            <div className="flex h-16 w-16 items-center justify-center rounded-full">
+              <Image
+                src="/logo.png"
+                alt="Ramen Cafe Logo"
+                width={50}
+                height={50}
+              />
+            </div>
 
             <div>
               <p className="text-[12px] font-semibold tracking-[0.15em] sm:text-[15px] sm:tracking-[0.16em]">
@@ -420,7 +538,6 @@ export default function MenuPage() {
           {/* Desktop Navigation */}
 
           <nav className="hidden items-center gap-10 lg:flex">
-
             <Link
               href="/#story"
               className="text-sm transition hover:text-[#B83A2E]"
@@ -443,7 +560,6 @@ export default function MenuPage() {
             >
               Location
             </Link>
-
           </nav>
 
           {/* Cart */}
@@ -464,7 +580,6 @@ export default function MenuPage() {
               </span>
             )}
           </Link>
-
         </div>
       </header>
 
@@ -474,15 +589,11 @@ export default function MenuPage() {
 
       {tableId && (
         <div className="mx-auto max-w-[1440px] px-4 pt-3 sm:px-8 lg:px-12">
-
           <div className="inline-flex items-center gap-2 rounded-full bg-[#171513] px-3 py-1.5 text-[11px] font-medium text-white sm:px-4 sm:py-2 sm:text-xs">
-
             <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
 
             Table {tableId}
-
           </div>
-
         </div>
       )}
 
@@ -491,15 +602,12 @@ export default function MenuPage() {
       ================================================= */}
 
       <section className="mx-auto max-w-[1440px] px-4 pb-6 pt-8 sm:px-8 sm:pb-8 sm:pt-12 lg:px-12 lg:pb-8 lg:pt-14">
-
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E] sm:text-xs">
           Our Menu
         </p>
 
         <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-
           <div>
-
             <h1 className="max-w-3xl text-[36px] font-semibold leading-[1.02] tracking-[-0.045em] sm:text-5xl lg:text-6xl">
               Choose your favorite
               <br className="hidden sm:block" />
@@ -509,13 +617,11 @@ export default function MenuPage() {
             <p className="mt-3 text-sm text-[#6B6258] sm:mt-4 sm:text-base">
               Fresh ingredients. Authentic flavors.
             </p>
-
           </div>
 
           {/* Search */}
 
           <div className="relative w-full lg:max-w-xs">
-
             <Search
               size={16}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8A8177]"
@@ -535,6 +641,7 @@ export default function MenuPage() {
 
             {search && (
               <button
+                type="button"
                 onClick={() =>
                   setSearch("")
                 }
@@ -544,9 +651,7 @@ export default function MenuPage() {
                 <X size={13} />
               </button>
             )}
-
           </div>
-
         </div>
       </section>
 
@@ -555,9 +660,7 @@ export default function MenuPage() {
       ================================================= */}
 
       <section className="sticky top-[68px] z-30 border-y border-[#E5DED2] bg-[#F5F0E8]/95 backdrop-blur-xl sm:top-20">
-
         <div className="mx-auto flex max-w-[1440px] items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-8 sm:py-3 lg:px-12">
-
           {categories.map(
             (category) => {
               const active =
@@ -567,6 +670,7 @@ export default function MenuPage() {
               return (
                 <button
                   key={category.id}
+                  type="button"
                   onClick={() =>
                     setActiveCategory(
                       category.id
@@ -593,7 +697,6 @@ export default function MenuPage() {
               size={16}
             />
           </button>
-
         </div>
       </section>
 
@@ -602,12 +705,54 @@ export default function MenuPage() {
       ================================================= */}
 
       <section className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 sm:py-8 lg:px-12 lg:py-10">
+        {/* -------------------------------------------------
+            LOADING
+        ------------------------------------------------- */}
 
-        {filteredProducts.length ===
-        0 ? (
+        {isLoadingProducts ? (
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+            {[1, 2, 3, 4].map(
+              (item) => (
+                <div
+                  key={item}
+                  className="h-48 animate-pulse rounded-3xl bg-[#FFFDF8]"
+                />
+              )
+            )}
+          </div>
+        ) : productError ? (
+          /* -------------------------------------------------
+              ERROR
+          ------------------------------------------------- */
 
           <div className="rounded-3xl bg-[#FFFDF8] px-5 py-20 text-center">
+            <p className="text-4xl">
+              🍜
+            </p>
 
+            <h2 className="mt-4 text-xl font-semibold">
+              Unable to load menu
+            </h2>
+
+            <p className="mt-2 text-sm text-[#6B6258]">
+              {productError}
+            </p>
+
+            <button
+              type="button"
+              onClick={loadProducts}
+              className="mt-6 rounded-full bg-[#171513] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#B83A2E]"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : filteredProducts.length ===
+          0 ? (
+          /* -------------------------------------------------
+              EMPTY
+          ------------------------------------------------- */
+
+          <div className="rounded-3xl bg-[#FFFDF8] px-5 py-20 text-center">
             <p className="text-4xl">
               🍜
             </p>
@@ -621,6 +766,7 @@ export default function MenuPage() {
             </p>
 
             <button
+              type="button"
               onClick={() => {
                 setSearch("");
                 setActiveCategory(
@@ -631,13 +777,13 @@ export default function MenuPage() {
             >
               Clear Filters
             </button>
-
           </div>
-
         ) : (
+          /* -------------------------------------------------
+              PRODUCTS GRID
+          ------------------------------------------------- */
 
           <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-
             {filteredProducts.map(
               (product) => (
                 <MenuCard
@@ -653,11 +799,8 @@ export default function MenuPage() {
                 />
               )
             )}
-
           </div>
-
         )}
-
       </section>
 
       {/* =================================================
@@ -679,7 +822,6 @@ export default function MenuPage() {
             product,
             total,
           }) => {
-
             updateCartCount();
 
             closeCustomization();
@@ -688,7 +830,6 @@ export default function MenuPage() {
               product,
               total
             );
-
           }}
         />
       )}
@@ -698,9 +839,7 @@ export default function MenuPage() {
       ================================================= */}
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-[#DED6C9] bg-[#FFFDF8]/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl lg:hidden">
-
         <div className="mx-auto flex max-w-md items-center justify-around">
-
           <Link
             href="/"
             className="flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#6B6258]"
@@ -731,9 +870,7 @@ export default function MenuPage() {
             href="/cart"
             className="relative flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#6B6258]"
           >
-
             <div className="relative">
-
               <ShoppingCart
                 size={18}
               />
@@ -743,13 +880,11 @@ export default function MenuPage() {
                   {cartCount}
                 </span>
               )}
-
             </div>
 
             <span className="text-[10px]">
               Cart
             </span>
-
           </Link>
 
           <Link
@@ -764,7 +899,6 @@ export default function MenuPage() {
               Account
             </span>
           </Link>
-
         </div>
       </nav>
 
@@ -774,15 +908,12 @@ export default function MenuPage() {
 
       {toast && (
         <div className="fixed bottom-20 left-1/2 z-[100] w-[calc(100%-24px)] max-w-sm -translate-x-1/2 sm:bottom-6">
-
           <div className="flex items-center gap-3 rounded-2xl bg-[#171513] p-3.5 text-white shadow-2xl sm:p-4">
-
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500 text-lg font-bold">
               ✓
             </div>
 
             <div className="min-w-0 flex-1">
-
               <p className="text-sm font-semibold">
                 Added to cart
               </p>
@@ -791,7 +922,6 @@ export default function MenuPage() {
                 {toast.product} · ₹
                 {toast.total}
               </p>
-
             </div>
 
             <Link
@@ -800,12 +930,9 @@ export default function MenuPage() {
             >
               View Cart
             </Link>
-
           </div>
-
         </div>
       )}
-
     </main>
   );
 }

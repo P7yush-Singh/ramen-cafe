@@ -9,10 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "lucide-react": "^1.31.0",
     "mongoose": "^9.9.2",
     "next": "16.3.0",
     "next-cloudinary": "^6.18.8",
+    "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "resend": "^6.19.0"

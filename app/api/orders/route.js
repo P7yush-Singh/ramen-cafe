@@ -3,10 +3,13 @@ import { randomUUID } from "crypto";
 
 import { connectDB } from "@/lib/mongodb";
 import { getServerUser } from "@/lib/auth-server";
+
 import Order from "@/models/Order";
+import Product from "@/models/Product";
+import Table from "@/models/Table";
 
 // ============================================================
-// CONFIGURATION
+// CONFIG
 // ============================================================
 
 const TAX_RATE = 5;
@@ -27,13 +30,19 @@ const ORDER_NUMBER_RETRY_LIMIT = 5;
 // RESPONSE HELPERS
 // ============================================================
 
-function successResponse(data, status = 200) {
+
+function successResponse(
+  data,
+  status = 200
+) {
   return Response.json(
     {
       success: true,
       ...data,
     },
-    { status }
+    {
+      status,
+    }
   );
 }
 
@@ -48,12 +57,14 @@ function errorResponse(
       error: message,
       ...extra,
     },
-    { status }
+    {
+      status,
+    }
   );
 }
 
 // ============================================================
-// BASIC HELPERS
+// NORMALIZATION
 // ============================================================
 
 function normalizeText(
@@ -79,13 +90,14 @@ function roundMoney(value) {
 
   return (
     Math.round(
-      (number + Number.EPSILON) * 100
+      (number + Number.EPSILON) *
+        100
     ) / 100
   );
 }
 
 // ============================================================
-// TABLE HELPERS
+// TABLE
 // ============================================================
 
 function normalizeTableId(value) {
@@ -101,7 +113,7 @@ function isValidTableId(tableId) {
 }
 
 // ============================================================
-// CUSTOMER HELPERS
+// CUSTOMER
 // ============================================================
 
 function normalizePhone(value) {
@@ -144,73 +156,227 @@ function generateOrderNumber() {
     ).padStart(2, "0"),
   ].join("");
 
-  const uniquePart =
+  const randomPart =
     randomUUID()
       .replace(/-/g, "")
       .slice(0, 8)
       .toUpperCase();
 
-  return `RC-${date}-${uniquePart}`;
+  return `RC-${date}-${randomPart}`;
 }
 
 // ============================================================
-// ADDONS
+// PRODUCT ID
 // ============================================================
 
-function normalizeAddons(addons) {
-  if (!Array.isArray(addons)) {
-    return [];
-  }
+function normalizeProductId(
+  item
+) {
+  return normalizeText(
+    item?.productId ||
+      item?.id ||
+      item?._id ||
+      "",
+    100
+  );
+}
+
+// ============================================================
+// ADD-ON NORMALIZATION
+// ============================================================
+
+function getRequestedAddons(item) {
+  const addons =
+    Array.isArray(item?.addons)
+      ? item.addons
+      : Array.isArray(item?.addOns)
+      ? item.addOns
+      : [];
 
   return addons
-    .map((addon) => {
-      if (
-        !addon ||
-        typeof addon !== "object" ||
-        Array.isArray(addon)
-      ) {
-        return null;
-      }
+    .filter(
+      (addon) =>
+        addon &&
+        typeof addon === "object"
+    )
+    .map((addon) => ({
+      id: normalizeText(
+        addon._id ||
+          addon.id ||
+          "",
+        100
+      ),
 
-      const name =
-        normalizeText(
-          addon.name ||
-            addon.title ||
-            "",
-          100
-        );
-
-      const price =
-        roundMoney(
-          normalizeNumber(
-            addon.price
-          )
-        );
-
-      if (!name) {
-        return null;
-      }
-
-      if (
-        !Number.isFinite(price) ||
-        price < 0
-      ) {
-        return null;
-      }
-
-      return {
-        name,
-        price,
-      };
-    })
-    .filter(Boolean);
+      name: normalizeText(
+        addon.name ||
+          addon.title ||
+          "",
+        100
+      ),
+    }));
 }
 
 // ============================================================
-// NORMALIZE CART ITEM
+// FIND DATABASE ADD-ON
 // ============================================================
 
-function normalizeCartItem(
+function findProductAddon(
+  product,
+  requestedAddon
+) {
+  const productAddons =
+    Array.isArray(
+      product.addOns
+    )
+      ? product.addOns
+      : [];
+
+  // ----------------------------------------------------------
+  // Match by MongoDB add-on ID first
+  // ----------------------------------------------------------
+
+  if (requestedAddon.id) {
+    const byId =
+      productAddons.find(
+        (addon) =>
+          String(
+            addon._id
+          ) ===
+          requestedAddon.id
+      );
+
+    if (byId) {
+      return byId;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Backward-compatible name matching
+  // ----------------------------------------------------------
+
+  if (requestedAddon.name) {
+    const requestedName =
+      requestedAddon.name
+        .trim()
+        .toLowerCase();
+
+    const byName =
+      productAddons.find(
+        (addon) =>
+          String(
+            addon.name || ""
+          )
+            .trim()
+            .toLowerCase() ===
+            requestedName
+      );
+
+    if (byName) {
+      return byName;
+    }
+  }
+
+  return null;
+}
+
+// ============================================================
+// VALIDATE CUSTOMIZATION
+// ============================================================
+
+function validateCustomization(
+  product,
+  item,
+  productName
+) {
+  const noodles =
+    normalizeText(
+      item.noodles ||
+        item.noodle ||
+        "",
+      100
+    );
+
+  const spice =
+    normalizeText(
+      item.spice ||
+        item.spiceLevel ||
+        "",
+      100
+    );
+
+  // ----------------------------------------------------------
+  // NOODLES
+  // ----------------------------------------------------------
+
+  const allowedNoodles =
+    Array.isArray(
+      product.customization
+        ?.noodles
+    )
+      ? product.customization
+          .noodles
+      : [];
+
+  if (noodles) {
+    if (
+      !allowedNoodles.some(
+        (value) =>
+          String(value)
+            .trim()
+            .toLowerCase() ===
+          noodles
+            .trim()
+            .toLowerCase()
+      )
+    ) {
+      throw new Error(
+        `${productName}: selected noodle option is unavailable.`
+      );
+    }
+  }
+
+  // ----------------------------------------------------------
+  // SPICE
+  // ----------------------------------------------------------
+
+  const allowedSpiceLevels =
+    Array.isArray(
+      product.customization
+        ?.spiceLevels
+    )
+      ? product.customization
+          .spiceLevels
+      : [];
+
+  if (spice) {
+    if (
+      !allowedSpiceLevels.some(
+        (value) =>
+          String(value)
+            .trim()
+            .toLowerCase() ===
+          spice
+            .trim()
+            .toLowerCase()
+      )
+    ) {
+      throw new Error(
+        `${productName}: selected spice level is unavailable.`
+      );
+    }
+  }
+
+  return {
+    noodles,
+    spice,
+  };
+}
+
+// ============================================================
+// NORMALIZE + VALIDATE ONE CART ITEM
+// ============================================================
+
+async function normalizeCartItem(
   item,
   index
 ) {
@@ -231,13 +397,7 @@ function normalizeCartItem(
   // ----------------------------------------------------------
 
   const productId =
-    normalizeText(
-      item.productId ||
-        item.id ||
-        item._id ||
-        "",
-      200
-    );
+    normalizeProductId(item);
 
   if (!productId) {
     throw new Error(
@@ -247,37 +407,17 @@ function normalizeCartItem(
     );
   }
 
-  // ----------------------------------------------------------
-  // PRODUCT NAME
-  // ----------------------------------------------------------
-
-  const name =
-    normalizeText(
-      item.name ||
-        item.productName ||
-        "",
-      MAX_NAME_LENGTH
-    );
-
-  if (!name) {
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      productId
+    )
+  ) {
     throw new Error(
-      `Cart item ${
+      `Invalid product ID for cart item ${
         index + 1
-      } is missing a product name.`
+      }.`
     );
   }
-
-  // ----------------------------------------------------------
-  // IMAGE
-  // ----------------------------------------------------------
-
-  const image =
-    normalizeText(
-      item.image ||
-        item.imageUrl ||
-        "",
-      1000
-    );
 
   // ----------------------------------------------------------
   // QUANTITY
@@ -296,7 +436,69 @@ function normalizeCartItem(
       MAX_QUANTITY_PER_ITEM
   ) {
     throw new Error(
-      `Invalid quantity for ${name}.`
+      "Invalid product quantity."
+    );
+  }
+
+  // ----------------------------------------------------------
+  // FETCH PRODUCT FROM DATABASE
+  // ----------------------------------------------------------
+
+  const product =
+    await Product.findById(
+      productId
+    ).lean();
+
+  if (!product) {
+    throw new Error(
+      "One of the products in your cart no longer exists."
+    );
+  }
+
+  // ----------------------------------------------------------
+  // AVAILABILITY
+  // ----------------------------------------------------------
+
+  if (
+    product.isAvailable !== true
+  ) {
+    throw new Error(
+      `${product.name} is currently unavailable.`
+    );
+  }
+
+  // ----------------------------------------------------------
+  // AUTHORITATIVE PRODUCT DATA
+  // ----------------------------------------------------------
+
+  const name =
+    normalizeText(
+      product.name,
+      MAX_NAME_LENGTH
+    );
+
+  const image =
+    normalizeText(
+      product.image || "",
+      1000
+    );
+
+  // IMPORTANT:
+  // NEVER use item.price here.
+  //
+  // MongoDB Product.price is authoritative.
+
+  const price =
+    roundMoney(
+      product.price
+    );
+
+  if (
+    !Number.isFinite(price) ||
+    price < 0
+  ) {
+    throw new Error(
+      `Invalid database price for ${name}.`
     );
   }
 
@@ -304,148 +506,97 @@ function normalizeCartItem(
   // CUSTOMIZATION
   // ----------------------------------------------------------
 
-  const noodles =
-    normalizeText(
-      item.noodles ||
-        item.noodle ||
-        "",
-      100
-    );
-
-  const spice =
-    normalizeText(
-      item.spice ||
-        item.spiceLevel ||
-        "",
-      100
-    );
-
-  const addons =
-    normalizeAddons(
-      item.addons ||
-        item.addOns ||
-        []
+  const customization =
+    validateCustomization(
+      product,
+      item,
+      name
     );
 
   // ----------------------------------------------------------
-  // PRICE
+  // ADD-ONS
   // ----------------------------------------------------------
 
-  const suppliedPrice =
-    roundMoney(
-      normalizeNumber(
-        item.price
-      )
-    );
+  const requestedAddons =
+    getRequestedAddons(item);
 
-  const suppliedTotal =
-    roundMoney(
-      normalizeNumber(
-        item.total
-      )
-    );
+  const validatedAddons = [];
+
+  for (
+    const requestedAddon of requestedAddons
+  ) {
+    const databaseAddon =
+      findProductAddon(
+        product,
+        requestedAddon
+      );
+
+    if (!databaseAddon) {
+      throw new Error(
+        `${name}: selected add-on is unavailable.`
+      );
+    }
+
+    if (
+      databaseAddon.isAvailable ===
+      false
+    ) {
+      throw new Error(
+        `${name}: ${databaseAddon.name} is currently unavailable.`
+      );
+    }
+
+    validatedAddons.push({
+      name:
+        databaseAddon.name,
+
+      // IMPORTANT:
+      // Database price only.
+      price:
+        roundMoney(
+          databaseAddon.price
+        ),
+    });
+  }
 
   // ----------------------------------------------------------
-  // ADDON TOTAL
+  // ADD-ON TOTAL
   // ----------------------------------------------------------
 
   const addonUnitTotal =
     roundMoney(
-      addons.reduce(
+      validatedAddons.reduce(
         (sum, addon) =>
           sum +
-          normalizeNumber(
-            addon.price
-          ),
+          addon.price,
         0
       )
     );
 
   // ----------------------------------------------------------
-  // DETERMINE PRODUCT PRICE
-  // ----------------------------------------------------------
-
-  let price =
-    suppliedPrice;
-
-  /*
-   * Backward compatibility for existing
-   * cart objects where price was saved as 0.
-   *
-   * Example:
-   *
-   * Product      ₹179
-   * Extra Egg     ₹40
-   * Extra Noodles ₹50
-   * Total        ₹269
-   *
-   * 269 - 40 - 50 = 179
-   */
-
-  if (
-    price <= 0 &&
-    suppliedTotal > 0
-  ) {
-    const addonTotal =
-      addonUnitTotal *
-      quantity;
-
-    const baseTotal =
-      suppliedTotal -
-      addonTotal;
-
-    const derivedPrice =
-      baseTotal /
-      quantity;
-
-    if (
-      Number.isFinite(
-        derivedPrice
-      ) &&
-      derivedPrice > 0
-    ) {
-      price =
-        roundMoney(
-          derivedPrice
-        );
-    }
-  }
-
-  // ----------------------------------------------------------
-  // PRICE VALIDATION
-  // ----------------------------------------------------------
-
-  if (
-    !Number.isFinite(price) ||
-    price <= 0
-  ) {
-    throw new Error(
-      `Invalid product price for ${name}.`
-    );
-  }
-
-  // ----------------------------------------------------------
-  // SERVER CALCULATION
+  // LINE TOTAL
   // ----------------------------------------------------------
 
   const baseTotal =
-    price * quantity;
+    roundMoney(
+      price * quantity
+    );
 
   const addonTotal =
-    addonUnitTotal *
-    quantity;
+    roundMoney(
+      addonUnitTotal *
+        quantity
+    );
 
-  const calculatedTotal =
+  const total =
     roundMoney(
       baseTotal +
         addonTotal
     );
 
   if (
-    !Number.isFinite(
-      calculatedTotal
-    ) ||
-    calculatedTotal <= 0
+    !Number.isFinite(total) ||
+    total < 0
   ) {
     throw new Error(
       `Unable to calculate total for ${name}.`
@@ -453,19 +604,31 @@ function normalizeCartItem(
   }
 
   // ----------------------------------------------------------
-  // NORMALIZED ITEM
+  // RETURN ORDER ITEM
   // ----------------------------------------------------------
 
   return {
     productId,
+
     name,
+
     image,
+
+    // DATABASE PRICE
     price,
+
     quantity,
-    noodles,
-    spice,
-    addons,
-    total: calculatedTotal,
+
+    noodles:
+      customization.noodles,
+
+    spice:
+      customization.spice,
+
+    addons:
+      validatedAddons,
+
+    total,
   };
 }
 
@@ -488,319 +651,7 @@ function getPreparationMinutes() {
 }
 
 // ============================================================
-// GET /api/orders
-//
-// Used by:
-// /orders
-//
-// Returns the logged-in user's orders.
-// ============================================================
-
-export async function GET(request) {
-  try {
-    // ========================================================
-    // 1. AUTHENTICATION
-    // ========================================================
-
-    const user =
-      await getServerUser();
-
-    if (!user) {
-      return errorResponse(
-        "You must be logged in to view your orders.",
-        401
-      );
-    }
-
-    // ========================================================
-    // 2. USER ID
-    // ========================================================
-
-    const userId =
-      user?._id
-        ? String(user._id)
-        : "";
-
-    if (
-      !userId ||
-      !mongoose.Types.ObjectId.isValid(
-        userId
-      )
-    ) {
-      return errorResponse(
-        "Invalid authenticated user.",
-        401
-      );
-    }
-
-    const userObjectId =
-      new mongoose.Types.ObjectId(
-        userId
-      );
-
-    // ========================================================
-    // 3. DATABASE
-    // ========================================================
-
-    await connectDB();
-
-    // ========================================================
-    // 4. QUERY PARAMETERS
-    // ========================================================
-
-    const url =
-      new URL(request.url);
-
-    const searchParams =
-      url.searchParams;
-
-    const pageValue =
-      Number(
-        searchParams.get(
-          "page"
-        ) || 1
-      );
-
-    const limitValue =
-      Number(
-        searchParams.get(
-          "limit"
-        ) || 10
-      );
-
-    const page =
-      Number.isFinite(
-        pageValue
-      ) &&
-      pageValue >= 1
-        ? Math.floor(
-            pageValue
-          )
-        : 1;
-
-    const limit =
-      Number.isFinite(
-        limitValue
-      ) &&
-      limitValue >= 1
-        ? Math.min(
-            Math.floor(
-              limitValue
-            ),
-            50
-          )
-        : 10;
-
-    const skip =
-      (page - 1) *
-      limit;
-
-    // ========================================================
-    // 5. STATUS FILTER
-    // ========================================================
-
-    const filter = {
-      userId:
-        userObjectId,
-    };
-
-    const status =
-      normalizeText(
-        searchParams.get(
-          "status"
-        ) || "",
-        50
-      ).toLowerCase();
-
-    if (status) {
-      filter.status =
-        status;
-    }
-
-    // ========================================================
-    // 6. FETCH ORDERS
-    // ========================================================
-
-    const [
-      orders,
-      totalOrders,
-    ] =
-      await Promise.all([
-        Order.find(filter)
-          .sort({
-            createdAt: -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-
-        Order.countDocuments(
-          filter
-        ),
-      ]);
-
-    // ========================================================
-    // 7. NORMALIZE ORDERS
-    // ========================================================
-
-    const normalizedOrders =
-      orders.map(
-        (order) => ({
-          id:
-            order._id
-              ? String(
-                  order._id
-                )
-              : null,
-
-          orderId:
-            order._id
-              ? String(
-                  order._id
-                )
-              : null,
-
-          orderNumber:
-            order.orderNumber,
-
-          tableId:
-            order.tableId,
-
-          customer:
-            order.customer ||
-            null,
-
-          items:
-            Array.isArray(
-              order.items
-            )
-              ? order.items
-              : [],
-
-          subtotal:
-            Number(
-              order.subtotal ||
-                0
-            ),
-
-          taxRate:
-            Number(
-              order.taxRate ||
-                0
-            ),
-
-          taxAmount:
-            Number(
-              order.taxAmount ||
-                0
-            ),
-
-          total:
-            Number(
-              order.total ||
-                0
-            ),
-
-          status:
-            order.status,
-
-          paymentStatus:
-            order.paymentStatus,
-
-          paymentMethod:
-            order.paymentMethod ||
-            null,
-
-          estimatedPreparationMinutes:
-            order.estimatedPreparationMinutes ||
-            null,
-
-          estimatedReadyAt:
-            order.estimatedReadyAt ||
-            null,
-
-          createdAt:
-            order.createdAt,
-
-          updatedAt:
-            order.updatedAt,
-        })
-      );
-
-    // ========================================================
-    // 8. PAGINATION
-    // ========================================================
-
-    const totalPages =
-      totalOrders > 0
-        ? Math.ceil(
-            totalOrders /
-              limit
-          )
-        : 0;
-
-    // ========================================================
-    // 9. RESPONSE
-    // ========================================================
-
-    return successResponse({
-      orders:
-        normalizedOrders,
-
-      pagination: {
-        page,
-        limit,
-        totalOrders,
-        totalPages,
-
-        hasNextPage:
-          page <
-          totalPages,
-
-        hasPreviousPage:
-          page > 1,
-      },
-    });
-  } catch (error) {
-    console.error(
-      "GET /api/orders error:",
-      error
-    );
-
-    // ========================================================
-    // DATABASE ERRORS
-    // ========================================================
-
-    if (
-      error?.name ===
-        "MongoServerSelectionError" ||
-      error?.name ===
-        "MongoNetworkError" ||
-      error?.code ===
-        "ECONNREFUSED" ||
-      error?.code ===
-        "ETIMEDOUT" ||
-      error?.code ===
-        "ENOTFOUND"
-    ) {
-      return errorResponse(
-        "Database is temporarily unavailable. Please try again.",
-        503
-      );
-    }
-
-    return errorResponse(
-      error?.message ||
-        "Unable to load orders.",
-      500
-    );
-  }
-}
-
-// ============================================================
 // POST /api/orders
-//
-// Creates a new order.
 // ============================================================
 
 export async function POST(
@@ -839,8 +690,7 @@ export async function POST(
 
     if (
       !body ||
-      typeof body !==
-        "object" ||
+      typeof body !== "object" ||
       Array.isArray(body)
     ) {
       return errorResponse(
@@ -875,6 +725,26 @@ export async function POST(
         400
       );
     }
+    // ========================================================
+// 3.1 VERIFY TABLE EXISTS AND IS ACTIVE
+// ========================================================
+
+const table =
+  await Table.findOne({
+    tableId,
+    isActive: true,
+  })
+    .select(
+      "tableId name capacity location"
+    )
+    .lean();
+
+if (!table) {
+  return errorResponse(
+    "This table is unavailable. Please scan the table QR code again.",
+    404
+  );
+}
 
     // ========================================================
     // 4. CUSTOMER
@@ -913,20 +783,12 @@ export async function POST(
           ""
       );
 
-    // --------------------------------------------------------
-    // NAME
-    // --------------------------------------------------------
-
     if (!customerName) {
       return errorResponse(
         "Customer name is required.",
         400
       );
     }
-
-    // --------------------------------------------------------
-    // EMAIL
-    // --------------------------------------------------------
 
     if (!customerEmail) {
       return errorResponse(
@@ -945,10 +807,6 @@ export async function POST(
         400
       );
     }
-
-    // --------------------------------------------------------
-    // PHONE
-    // --------------------------------------------------------
 
     if (!customerPhone) {
       return errorResponse(
@@ -971,18 +829,8 @@ export async function POST(
     }
 
     // ========================================================
-    // 5. ITEMS / CART
+    // 5. ITEMS
     // ========================================================
-
-    /*
-     * Support both:
-     *
-     * body.items
-     *
-     * and older:
-     *
-     * body.cart
-     */
 
     const rawItems =
       Array.isArray(
@@ -992,8 +840,8 @@ export async function POST(
         : Array.isArray(
             body.cart
           )
-          ? body.cart
-          : null;
+        ? body.cart
+        : null;
 
     if (!rawItems) {
       return errorResponse(
@@ -1022,33 +870,41 @@ export async function POST(
     }
 
     // ========================================================
-    // 6. NORMALIZE ITEMS
+    // 6. DATABASE CONNECTION
+    // ========================================================
+
+    await connectDB();
+
+    // ========================================================
+    // 7. NORMALIZE + VALIDATE ITEMS
     // ========================================================
 
     let items;
 
     try {
       items =
-        rawItems.map(
-          (
-            item,
-            index
-          ) =>
-            normalizeCartItem(
+        await Promise.all(
+          rawItems.map(
+            (
               item,
               index
-            )
+            ) =>
+              normalizeCartItem(
+                item,
+                index
+              )
+          )
         );
     } catch (error) {
       return errorResponse(
         error?.message ||
-          "Invalid cart item.",
+          "Invalid order item.",
         400
       );
     }
 
     // ========================================================
-    // 7. SUBTOTAL
+    // 8. SUBTOTAL
     // ========================================================
 
     const subtotal =
@@ -1068,7 +924,7 @@ export async function POST(
       !Number.isFinite(
         subtotal
       ) ||
-      subtotal <= 0
+      subtotal < 0
     ) {
       return errorResponse(
         "Invalid order subtotal.",
@@ -1077,7 +933,7 @@ export async function POST(
     }
 
     // ========================================================
-    // 8. GST
+    // 9. GST
     // ========================================================
 
     const taxAmount =
@@ -1087,7 +943,7 @@ export async function POST(
       );
 
     // ========================================================
-    // 9. FINAL TOTAL
+    // 10. FINAL TOTAL
     // ========================================================
 
     const total =
@@ -1100,7 +956,7 @@ export async function POST(
       !Number.isFinite(
         total
       ) ||
-      total <= 0
+      total < 0
     ) {
       return errorResponse(
         "Invalid order total.",
@@ -1109,7 +965,7 @@ export async function POST(
     }
 
     // ========================================================
-    // 10. PREPARATION TIME
+    // 11. PREPARATION TIME
     // ========================================================
 
     const estimatedPreparationMinutes =
@@ -1122,12 +978,6 @@ export async function POST(
             60 *
             1000
       );
-
-    // ========================================================
-    // 11. DATABASE
-    // ========================================================
-
-    await connectDB();
 
     // ========================================================
     // 12. USER ID
@@ -1218,7 +1068,7 @@ export async function POST(
         break;
       } catch (error) {
         // ----------------------------------------------------
-        // DUPLICATE ORDER NUMBER
+        // UNIQUE ORDER NUMBER COLLISION
         // ----------------------------------------------------
 
         if (
@@ -1260,7 +1110,7 @@ export async function POST(
     }
 
     // ========================================================
-    // 15. RESPONSE
+    // 15. SUCCESS
     // ========================================================
 
     return successResponse(
@@ -1318,14 +1168,18 @@ export async function POST(
       201
     );
   } catch (error) {
+    // ========================================================
+    // GLOBAL ERROR
+    // ========================================================
+
     console.error(
       "POST /api/orders error:",
       error
     );
 
-    // ========================================================
+    // --------------------------------------------------------
     // MONGOOSE VALIDATION
-    // ========================================================
+    // --------------------------------------------------------
 
     if (
       error?.name ===
@@ -1348,9 +1202,9 @@ export async function POST(
       );
     }
 
-    // ========================================================
-    // CAST ERROR
-    // ========================================================
+    // --------------------------------------------------------
+    // INVALID OBJECT ID
+    // --------------------------------------------------------
 
     if (
       error?.name ===
@@ -1362,9 +1216,9 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // DATABASE CONNECTION
-    // ========================================================
+    // --------------------------------------------------------
 
     if (
       error?.name ===
@@ -1384,13 +1238,12 @@ export async function POST(
       );
     }
 
-    // ========================================================
-    // DUPLICATE KEY
-    // ========================================================
+    // --------------------------------------------------------
+    // DUPLICATE
+    // --------------------------------------------------------
 
     if (
-      error?.code ===
-      11000
+      error?.code === 11000
     ) {
       return errorResponse(
         "Duplicate order data detected. Please try again.",
@@ -1398,9 +1251,9 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // FALLBACK
-    // ========================================================
+    // --------------------------------------------------------
 
     return errorResponse(
       error?.message ||
