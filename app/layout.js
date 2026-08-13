@@ -1,6 +1,7 @@
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -23,6 +24,7 @@ export default function RootLayout({ children }) {
         {children}
 
         <MobileBottomNav />
+        <SpeedInsights />
       </body>
     </html>
   );
