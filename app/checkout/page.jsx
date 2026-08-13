@@ -768,62 +768,151 @@ export default function CheckoutPage() {
                       item.spice ??
                       null;
 
+                    const quantity = Math.max(
+                      1,
+                      Number(item.quantity || 1)
+                    );
+
+                    const addons = Array.isArray(
+                      item.addons ?? item.addOns
+                    )
+                      ? item.addons ?? item.addOns
+                      : [];
+
+                    const addonTotalPerUnit = addons.reduce(
+                      (sum, addon) =>
+                        sum +
+                        Number(addon?.price || 0) *
+                          Math.max(
+                            1,
+                            Number(addon?.quantity || 1)
+                          ),
+                      0
+                    );
+
+                    const addonTotal =
+                      addonTotalPerUnit * quantity;
+
+                    const baseTotal =
+                      Number(item.price || 0) * quantity;
+
                     return (
                       <div
                         key={
                           item.cartItemId ||
                           `${item.id || item.name}-${index}`
                         }
-                        className="flex gap-3"
+                        className="rounded-2xl border border-[#E5DED2] p-3"
                       >
-                        {/* IMAGE */}
+                        <div className="flex gap-3">
+                          {/* IMAGE */}
 
-                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#F5F0E8]">
-                          {item.image ? (
-                            <img
-                              src={item.image}
-                              alt={
-                                item.name ||
-                                "Food item"
-                              }
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              🍜
-                            </div>
-                          )}
-                        </div>
-
-                        {/* DETAILS */}
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex justify-between gap-2">
-                            <p className="truncate text-sm font-medium">
-                              {item.name}
-                            </p>
-
-                            <p className="shrink-0 text-sm font-semibold">
-                              {formatPrice(
-                                item.total
-                              )}
-                            </p>
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#F5F0E8]">
+                            {item.image ? (
+                              <img
+                                src={item.image}
+                                alt={
+                                  item.name ||
+                                  "Food item"
+                                }
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                🍜
+                              </div>
+                            )}
                           </div>
 
-                          <p className="mt-1 text-[10px] text-[#8A8177]">
-                            Qty{" "}
-                            {item.quantity}
-                          </p>
+                          {/* DETAILS */}
 
-                          {noodles && (
-                            <p className="text-[10px] text-[#8A8177]">
-                              {noodles}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex justify-between gap-2">
+                              <p className="min-w-0 truncate text-sm font-medium">
+                                {item.name}
+                              </p>
 
-                              {spice
-                                ? ` · ${spice}`
-                                : ""}
+                              <p className="shrink-0 text-sm font-semibold">
+                                {formatPrice(item.total)}
+                              </p>
+                            </div>
+
+                            <p className="mt-1 text-[10px] text-[#8A8177]">
+                              Qty {quantity}
                             </p>
+
+                            {(noodles || spice) && (
+                              <p className="text-[10px] text-[#8A8177]">
+                                {noodles || ""}
+                                {noodles && spice ? " · " : ""}
+                                {spice || ""}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* EXACT PRICE BREAKDOWN */}
+
+                        <div className="mt-3 rounded-xl bg-[#F5F0E8] p-3">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-[#6B6258]">
+                              Base item
+                            </span>
+                            <span className="font-medium">
+                              {formatPrice(baseTotal)}
+                            </span>
+                          </div>
+
+                          {addons.length > 0 && (
+                            <div className="mt-2 border-t border-[#DED6C9] pt-2">
+                              <div className="flex items-center justify-between text-[11px] font-semibold">
+                                <span>Add-ons</span>
+                                <span className="text-[#B83A2E]">
+                                  +{formatPrice(addonTotal)}
+                                </span>
+                              </div>
+
+                              <div className="mt-1.5 space-y-1">
+                                {addons.map(
+                                  (addon, addonIndex) => {
+                                    const addonQuantity = Math.max(
+                                      1,
+                                      Number(addon?.quantity || 1)
+                                    );
+                                    const addonLineTotal =
+                                      Number(addon?.price || 0) *
+                                      addonQuantity *
+                                      quantity;
+
+                                    return (
+                                      <div
+                                        key={`${addon?.name || "addon"}-${addonIndex}`}
+                                        className="flex items-center justify-between gap-3 text-[11px] text-[#6B6258]"
+                                      >
+                                        <span className="min-w-0 truncate">
+                                          + {addon?.name || "Add-on"}
+                                          {addonQuantity > 1
+                                            ? ` × ${addonQuantity}`
+                                            : ""}
+                                          {quantity > 1
+                                            ? ` × ${quantity} items`
+                                            : ""}
+                                        </span>
+                                        <span className="shrink-0 font-medium text-[#171513]">
+                                          +{formatPrice(addonLineTotal)}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
+                            </div>
                           )}
+
+                          <div className="mt-2 flex items-center justify-between border-t border-[#DED6C9] pt-2 text-xs font-semibold">
+                            <span>Item total</span>
+                            <span>{formatPrice(item.total)}</span>
+                          </div>
                         </div>
                       </div>
                     );
