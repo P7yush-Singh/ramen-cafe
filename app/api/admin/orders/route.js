@@ -1,12 +1,9 @@
-import mongoose from "mongoose";
-
 import { connectDB } from "@/lib/mongodb";
-import { getServerUser } from "@/lib/auth-server";
 import Order from "@/models/Order";
 
-// ============================================================
-// CONSTANTS
-// ============================================================
+import {
+  requireOrderAccess,
+} from "@/lib/admin-auth";
 
 const ALLOWED_STATUSES = [
   "pending",
@@ -64,61 +61,33 @@ function normalizeText(
   value,
   maxLength = 200
 ) {
-  return String(value ?? "")
-    .trim()
-    .slice(0, maxLength);
-}
-
-// ============================================================
-// ADMIN AUTHORIZATION
-// ============================================================
-
-function isAdminUser(user) {
-  if (!user) {
-    return false;
-  }
-
-  /*
-   * Normal customers are explicitly blocked.
-   *
-   * This allows restaurant-side roles such as:
-   *
-   * admin
-   * owner
-   * staff
-   * manager
-   *
-   * without requiring us to change the
-   * existing customer authentication flow.
-   */
-
-  const role = String(
-    user.role || ""
+  return String(
+    value ?? ""
   )
     .trim()
-    .toLowerCase();
-
-  if (!role) {
-    return false;
-  }
-
-  return role !== "customer";
+    .slice(0, maxLength);
 }
 
 // ============================================================
 // SERIALIZE ORDER
 // ============================================================
 
-function serializeOrder(order) {
+function serializeOrder(
+  order
+) {
   return {
     id:
       order._id
-        ? String(order._id)
+        ? String(
+            order._id
+          )
         : null,
 
     orderId:
       order._id
-        ? String(order._id)
+        ? String(
+            order._id
+          )
         : null,
 
     orderNumber:
@@ -126,17 +95,22 @@ function serializeOrder(order) {
 
     userId:
       order.userId
-        ? String(order.userId)
+        ? String(
+            order.userId
+          )
         : null,
 
     customer:
-      order.customer || null,
+      order.customer ||
+      null,
 
     tableId:
       order.tableId,
 
     items:
-      Array.isArray(order.items)
+      Array.isArray(
+        order.items
+      )
         ? order.items
         : [],
 
@@ -219,38 +193,24 @@ export async function GET(
 ) {
   try {
     // ========================================================
-    // 1. AUTHENTICATION
+    // 1. AUTHORIZATION
     // ========================================================
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireOrderAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
     // ========================================================
-    // 2. ADMIN AUTHORIZATION
-    // ========================================================
-
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to access the admin orders.",
-        403
-      );
-    }
-
-    // ========================================================
-    // 3. DATABASE
+    // 2. DATABASE
     // ========================================================
 
     await connectDB();
 
     // ========================================================
-    // 4. QUERY PARAMETERS
+    // 3. QUERY PARAMETERS
     // ========================================================
 
     const url =
@@ -282,6 +242,14 @@ export async function GET(
         ) || "",
         100
       );
+
+    const paymentStatus =
+      normalizeText(
+        searchParams.get(
+          "paymentStatus"
+        ) || "",
+        30
+      ).toLowerCase();
 
     const pageValue =
       Number(
@@ -322,7 +290,7 @@ export async function GET(
         : DEFAULT_LIMIT;
 
     // ========================================================
-    // 5. VALIDATE STATUS
+    // 4. VALIDATE STATUS
     // ========================================================
 
     if (
@@ -333,6 +301,31 @@ export async function GET(
     ) {
       return errorResponse(
         `Invalid order status. Allowed values: ${ALLOWED_STATUSES.join(
+          ", "
+        )}.`,
+        400
+      );
+    }
+
+    // ========================================================
+    // 5. VALIDATE PAYMENT STATUS
+    // ========================================================
+
+    const ALLOWED_PAYMENT_STATUSES = [
+      "pending",
+      "paid",
+      "failed",
+      "refunded",
+    ];
+
+    if (
+      paymentStatus &&
+      !ALLOWED_PAYMENT_STATUSES.includes(
+        paymentStatus
+      )
+    ) {
+      return errorResponse(
+        `Invalid payment status. Allowed values: ${ALLOWED_PAYMENT_STATUSES.join(
           ", "
         )}.`,
         400
@@ -355,14 +348,14 @@ export async function GET(
         tableId;
     }
 
-    /*
-     * Search:
-     *
-     * - order number
-     * - customer name
-     * - customer email
-     * - customer phone
-     */
+    if (paymentStatus) {
+      filter.paymentStatus =
+        paymentStatus;
+    }
+
+    // ========================================================
+    // SEARCH
+    // ========================================================
 
     if (search) {
       const escapedSearch =
@@ -382,14 +375,17 @@ export async function GET(
           orderNumber:
             searchRegex,
         },
+
         {
           "customer.name":
             searchRegex,
         },
+
         {
           "customer.email":
             searchRegex,
         },
+
         {
           "customer.phone":
             searchRegex,
@@ -484,13 +480,61 @@ export async function GET(
           item._id
         )
       ) {
-        counts[item._id] =
-          item.count;
+        counts[
+          item._id
+        ] =
+          Number(
+            item.count || 0
+          );
       }
     }
 
     // ========================================================
-    // 12. RESPONSE
+    // 12. PAYMENT COUNTS
+    // ========================================================
+
+    const paymentCounts =
+      await Order.aggregate([
+        {
+          $group: {
+            _id:
+              "$paymentStatus",
+
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    const payments = {
+      pending: 0,
+      paid: 0,
+      failed: 0,
+      refunded: 0,
+    };
+
+    for (
+      const item of
+        paymentCounts
+    ) {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          payments,
+          item._id
+        )
+      ) {
+        payments[
+          item._id
+        ] =
+          Number(
+            item.count || 0
+          );
+      }
+    }
+
+    // ========================================================
+    // 13. RESPONSE
     // ========================================================
 
     return successResponse({
@@ -499,12 +543,12 @@ export async function GET(
 
       counts,
 
+      payments,
+
       pagination: {
         page,
         limit,
-
         totalOrders,
-
         totalPages,
 
         hasNextPage:
@@ -520,10 +564,6 @@ export async function GET(
       "GET /api/admin/orders error:",
       error
     );
-
-    // ========================================================
-    // DATABASE ERROR
-    // ========================================================
 
     if (
       error?.name ===
@@ -542,10 +582,6 @@ export async function GET(
         503
       );
     }
-
-    // ========================================================
-    // FALLBACK
-    // ========================================================
 
     return errorResponse(
       "Unable to load admin orders.",

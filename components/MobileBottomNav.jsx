@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Home, Utensils, ShoppingBag, UserRound } from "lucide-react";
+import {
+  Home,
+  Utensils,
+  ShoppingBag,
+  ReceiptText,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 
 const navigation = [
@@ -21,9 +26,9 @@ const navigation = [
     icon: ShoppingBag,
   },
   {
-    label: "Account",
-    href: "/account",
-    icon: UserRound,
+    label: "Bill",
+    href: "/bill",
+    icon: ReceiptText,
   },
 ];
 
@@ -51,7 +56,10 @@ export default function MobileBottomNav() {
                   : "text-[#6B6258] hover:text-[#171513]"
               }`}
             >
-              <Icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+              <Icon
+                size={20}
+                strokeWidth={active ? 2.4 : 1.8}
+              />
 
               <span>{item.label}</span>
             </Link>

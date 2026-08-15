@@ -1,6 +1,9 @@
 import { connectDB } from "@/lib/mongodb";
-import { getServerUser } from "@/lib/auth-server";
 import Order from "@/models/Order";
+
+import {
+  requireOrderAccess,
+} from "@/lib/admin-auth";
 
 // ============================================================
 // CONSTANTS
@@ -52,41 +55,25 @@ function errorResponse(
 }
 
 // ============================================================
-// ADMIN AUTHORIZATION
+// SERIALIZE ORDER
 // ============================================================
 
-function isAdminUser(user) {
-  if (!user) {
-    return false;
-  }
-
-  const role = String(
-    user.role || ""
-  )
-    .trim()
-    .toLowerCase();
-
-  if (!role) {
-    return false;
-  }
-
-  return role !== "customer";
-}
-
-// ============================================================
-// ORDER SERIALIZER
-// ============================================================
-
-function serializeOrder(order) {
+function serializeOrder(
+  order
+) {
   return {
     id:
       order._id
-        ? String(order._id)
+        ? String(
+            order._id
+          )
         : null,
 
     orderId:
       order._id
-        ? String(order._id)
+        ? String(
+            order._id
+          )
         : null,
 
     orderNumber:
@@ -94,17 +81,22 @@ function serializeOrder(order) {
 
     userId:
       order.userId
-        ? String(order.userId)
+        ? String(
+            order.userId
+          )
         : null,
 
     customer:
-      order.customer || null,
+      order.customer ||
+      null,
 
     tableId:
       order.tableId,
 
     items:
-      Array.isArray(order.items)
+      Array.isArray(
+        order.items
+      )
         ? order.items
         : [],
 
@@ -239,32 +231,18 @@ export async function GET(
 ) {
   try {
     // ========================================================
-    // 1. AUTH
+    // 1. AUTHORIZATION
     // ========================================================
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireOrderAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
     // ========================================================
-    // 2. ADMIN AUTH
-    // ========================================================
-
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to access this order.",
-        403
-      );
-    }
-
-    // ========================================================
-    // 3. PARAMS
+    // 2. PARAMS
     // ========================================================
 
     const {
@@ -286,13 +264,13 @@ export async function GET(
         .toUpperCase();
 
     // ========================================================
-    // 4. DATABASE
+    // 3. DATABASE
     // ========================================================
 
     await connectDB();
 
     // ========================================================
-    // 5. FIND ORDER
+    // 4. FIND ORDER
     // ========================================================
 
     const order =
@@ -309,7 +287,7 @@ export async function GET(
     }
 
     // ========================================================
-    // 6. RESPONSE
+    // 5. RESPONSE
     // ========================================================
 
     return successResponse({
@@ -342,32 +320,18 @@ export async function PATCH(
 ) {
   try {
     // ========================================================
-    // 1. AUTH
+    // 1. AUTHORIZATION
     // ========================================================
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireOrderAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
     // ========================================================
-    // 2. ADMIN AUTH
-    // ========================================================
-
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to update orders.",
-        403
-      );
-    }
-
-    // ========================================================
-    // 3. PARAMS
+    // 2. PARAMS
     // ========================================================
 
     const {
@@ -389,7 +353,7 @@ export async function PATCH(
         .toUpperCase();
 
     // ========================================================
-    // 4. REQUEST BODY
+    // 3. REQUEST BODY
     // ========================================================
 
     let body;
@@ -417,7 +381,7 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 5. STATUS
+    // 4. STATUS
     // ========================================================
 
     const nextStatus =
@@ -448,7 +412,7 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 6. CANCELLATION REASON
+    // 5. CANCELLATION REASON
     // ========================================================
 
     const cancellationReason =
@@ -471,13 +435,13 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 7. DATABASE
+    // 6. DATABASE
     // ========================================================
 
     await connectDB();
 
     // ========================================================
-    // 8. FIND ORDER
+    // 7. FIND ORDER
     // ========================================================
 
     const order =
@@ -494,7 +458,7 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 9. CURRENT STATUS
+    // 8. CURRENT STATUS
     // ========================================================
 
     const currentStatus =
@@ -505,7 +469,7 @@ export async function PATCH(
         .toLowerCase();
 
     // ========================================================
-    // 10. NO-OP
+    // 9. NO-OP
     // ========================================================
 
     if (
@@ -519,7 +483,7 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 11. VALIDATE TRANSITION
+    // 10. VALIDATE TRANSITION
     // ========================================================
 
     if (
@@ -535,18 +499,18 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 12. UPDATE STATUS
+    // 11. UPDATE STATUS
     // ========================================================
 
     order.status =
       nextStatus;
 
-    // ========================================================
-    // 13. STATUS TIMESTAMPS
-    // ========================================================
-
     const now =
       new Date();
+
+    // ========================================================
+    // 12. TIMESTAMPS
+    // ========================================================
 
     if (
       nextStatus ===
@@ -570,12 +534,6 @@ export async function PATCH(
     ) {
       order.readyAt =
         now;
-
-      /*
-       * Recalculate the expected
-       * ready timestamp to the actual
-       * ready moment.
-       */
 
       order.estimatedReadyAt =
         now;
@@ -601,13 +559,13 @@ export async function PATCH(
     }
 
     // ========================================================
-    // 14. SAVE
+    // 13. SAVE
     // ========================================================
 
     await order.save();
 
     // ========================================================
-    // 15. RESPONSE
+    // 14. RESPONSE
     // ========================================================
 
     return successResponse({
@@ -624,10 +582,6 @@ export async function PATCH(
       "PATCH /api/admin/orders/[orderNumber] error:",
       error
     );
-
-    // ========================================================
-    // MONGOOSE VALIDATION
-    // ========================================================
 
     if (
       error?.name ===
@@ -648,10 +602,6 @@ export async function PATCH(
       );
     }
 
-    // ========================================================
-    // DATABASE ERROR
-    // ========================================================
-
     if (
       error?.name ===
         "MongoServerSelectionError" ||
@@ -669,10 +619,6 @@ export async function PATCH(
         503
       );
     }
-
-    // ========================================================
-    // FALLBACK
-    // ========================================================
 
     return errorResponse(
       "Unable to update order.",
