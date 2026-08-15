@@ -55,8 +55,8 @@ const SIDEBAR_ITEMS = [
     icon: BarChart3,
   },
   {
-    label: "Customers",
-    href: "/admin/customers",
+    label: "Users",
+    href: "/admin/users",
     icon: Users,
   },
   {
