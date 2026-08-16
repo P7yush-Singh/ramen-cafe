@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import {
-  BarChart3,
   LayoutDashboard,
   MoreHorizontal,
   Package,
@@ -17,24 +16,167 @@ const NAV_ITEMS = [
     label: "Dashboard",
     href: "/admin",
     icon: LayoutDashboard,
+    roles: ["admin", "owner"],
   },
   {
     label: "Orders",
     href: "/admin/orders",
     icon: ShoppingBag,
+    roles: ["admin", "owner", "staff"],
   },
   {
     label: "Menu",
     href: "/admin/products",
     icon: Package,
+    roles: ["admin", "owner", "staff"],
   },
   {
     label: "Tables",
     href: "/admin/tables",
     icon: Store,
+    roles: ["admin", "owner"],
   },
 ];
 
+function normalizeRole(role) {
+  const value = String(
+    role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    value === "admin" ||
+    value === "owner" ||
+    value === "staff"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+export default function AdminBottomNav({
+  role,
+}) {
+  const pathname = usePathname();
+
+  const normalizedRole =
+    normalizeRole(role);
+
+  const visibleItems =
+    NAV_ITEMS.filter((item) =>
+      item.roles.includes(
+        normalizedRole
+      )
+    );
+
+  function isActive(href) {
+    if (href === "/admin") {
+      return pathname === "/admin";
+    }
+
+    return (
+      pathname === href ||
+      pathname.startsWith(
+        `${href}/`
+      )
+    );
+  }
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-[#DED6C9] bg-[#FFFDF8]/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.06)] backdrop-blur-xl lg:hidden">
+      <div
+        className={`mx-auto flex h-[68px] max-w-xl items-center ${
+          visibleItems.length <= 2
+            ? "justify-center gap-8"
+            : "justify-around"
+        }`}
+      >
+        {visibleItems.map(
+          ({
+            label,
+            href,
+            icon: Icon,
+          }) => {
+            const active =
+              isActive(href);
+
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`flex min-w-[68px] flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2 transition ${
+                  active
+                    ? "text-[#B83A2E]"
+                    : "text-[#81786D]"
+                }`}
+              >
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+                    active
+                      ? "bg-[#F5E3DE]"
+                      : ""
+                  }`}
+                >
+                  <Icon
+                    size={19}
+                    strokeWidth={
+                      active
+                        ? 2.4
+                        : 1.8
+                    }
+                  />
+                </span>
+
+                <span
+                  className={`text-[9px] font-semibold ${
+                    active
+                      ? "text-[#B83A2E]"
+                      : "text-[#81786D]"
+                  }`}
+                >
+                  {label}
+                </span>
+              </Link>
+            );
+          }
+        )}
+
+        {/* MORE */}
+
+        <Link
+          href="/admin/more"
+          className={`flex min-w-[68px] flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2 ${
+            pathname.startsWith(
+              "/admin/more"
+            )
+              ? "text-[#B83A2E]"
+              : "text-[#81786D]"
+          }`}
+        >
+          <span
+            className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+              pathname.startsWith(
+                "/admin/more"
+              )
+                ? "bg-[#F5E3DE]"
+                : ""
+            }`}
+          >
+            <MoreHorizontal
+              size={19}
+            />
+          </span>
+
+          <span className="text-[9px] font-semibold">
+            More
+          </span>
+        </Link>
+      </div>
+    </nav>
+  );
+}
 export default function AdminBottomNav() {
   const pathname =
     usePathname();
