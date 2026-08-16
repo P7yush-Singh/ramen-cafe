@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 
@@ -58,9 +57,9 @@ function formatDate(value) {
 }
 
 function getInitials(name) {
-  const value =
-    String(name || "")
-      .trim();
+  const value = String(
+    name || ""
+  ).trim();
 
   if (!value) {
     return "U";
@@ -71,24 +70,64 @@ function getInitials(name) {
     .slice(0, 2)
     .map(
       (part) =>
-        part[0]
-          ?.toUpperCase()
+        part[0]?.toUpperCase()
     )
     .join("");
 }
 
-function getStatusClass(
-  isActive
-) {
+function normalizeRole(role) {
+  const value = String(
+    role || "customer"
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    value === "admin" ||
+    value === "owner" ||
+    value === "staff" ||
+    value === "customer"
+  ) {
+    return value;
+  }
+
+  return "customer";
+}
+
+function getRoleLabel(role) {
+  const normalized =
+    normalizeRole(role);
+
+  return (
+    normalized
+      .charAt(0)
+      .toUpperCase() +
+    normalized.slice(1)
+  );
+}
+
+function getStatusClass(isActive) {
   return isActive
     ? "bg-green-50 text-green-700"
     : "bg-red-50 text-red-700";
 }
 
 function getRoleClass(role) {
-  return role === "admin"
-    ? "bg-purple-50 text-purple-700"
-    : "bg-[#F5F0E8] text-[#6B6258]";
+  switch (
+    normalizeRole(role)
+  ) {
+    case "admin":
+      return "bg-purple-50 text-purple-700";
+
+    case "owner":
+      return "bg-amber-50 text-amber-700";
+
+    case "staff":
+      return "bg-blue-50 text-blue-700";
+
+    default:
+      return "bg-[#F5F0E8] text-[#6B6258]";
+  }
 }
 
 // ============================================================
@@ -96,10 +135,6 @@ function getRoleClass(role) {
 // ============================================================
 
 export default function AdminUsersPage() {
-  // ==========================================================
-  // STATE
-  // ==========================================================
-
   const [users, setUsers] =
     useState([]);
 
@@ -180,6 +215,12 @@ export default function AdminUsersPage() {
             );
           }
 
+          /*
+           * Current backend supports customer/admin
+           * role filtering. Owner/staff support can be
+           * enabled here automatically once the API
+           * accepts those roles.
+           */
           if (
             roleFilter !== "all"
           ) {
@@ -304,9 +345,7 @@ export default function AdminUsersPage() {
   // VIEW USER
   // ==========================================================
 
-  async function openUser(
-    user
-  ) {
+  async function openUser(user) {
     try {
       setIsLoadingUser(true);
       setError("");
@@ -330,13 +369,12 @@ export default function AdminUsersPage() {
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "Unable to load customer."
+            "Unable to load user."
         );
       }
 
       setSelectedUser({
         ...data.user,
-
         recentOrders:
           data.recentOrders ||
           [],
@@ -349,7 +387,7 @@ export default function AdminUsersPage() {
 
       setError(
         error.message ||
-          "Unable to load customer."
+          "Unable to load user."
       );
     } finally {
       setIsLoadingUser(false);
@@ -372,9 +410,7 @@ export default function AdminUsersPage() {
   // TOGGLE ACTIVE
   // ==========================================================
 
-  async function toggleUser(
-    user
-  ) {
+  async function toggleUser(user) {
     if (updatingUser) {
       return;
     }
@@ -389,7 +425,11 @@ export default function AdminUsersPage() {
 
     const confirmed =
       window.confirm(
-        `${action === "activate" ? "Activate" : "Deactivate"} "${user.name || user.email}"?`
+        `${
+          action === "activate"
+            ? "Activate"
+            : "Deactivate"
+        } "${user.name || user.email}"?`
       );
 
     if (!confirmed) {
@@ -410,15 +450,12 @@ export default function AdminUsersPage() {
           )}`,
           {
             method: "PATCH",
-
             headers: {
               "Content-Type":
                 "application/json",
             },
-
             credentials:
               "include",
-
             body: JSON.stringify({
               isActive:
                 nextStatus,
@@ -503,29 +540,19 @@ export default function AdminUsersPage() {
     }
   }
 
-  // ==========================================================
-  // EMPTY STATE
-  // ==========================================================
-
   const hasUsers =
     users.length > 0;
-
-  // ==========================================================
-  // RENDER
-  // ==========================================================
 
   return (
     <main className="min-h-screen bg-[#F5F0E8]">
       <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 md:px-8 lg:px-10">
-        {/* ==================================================
-            HEADER
-        ================================================== */}
+        {/* HEADER */}
 
         <header className="mb-7">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E]">
-                Admin
+                Administration
               </p>
 
               <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#171513] sm:text-4xl">
@@ -534,7 +561,8 @@ export default function AdminUsersPage() {
 
               <p className="mt-2 max-w-2xl text-sm text-[#6B6258]">
                 Manage customer accounts,
-                activity and order history.
+                staff accounts and account
+                activity.
               </p>
             </div>
 
@@ -564,9 +592,7 @@ export default function AdminUsersPage() {
           </div>
         </header>
 
-        {/* ==================================================
-            ERROR
-        ================================================== */}
+        {/* ERROR */}
 
         {error && (
           <div className="mb-5 flex items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -584,9 +610,7 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        {/* ==================================================
-            STATS
-        ================================================== */}
+        {/* STATS */}
 
         <section className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <StatCard
@@ -620,14 +644,10 @@ export default function AdminUsersPage() {
           />
         </section>
 
-        {/* ==================================================
-            FILTER BAR
-        ================================================== */}
+        {/* FILTER BAR */}
 
         <section className="mb-5 rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-4 sm:p-5">
           <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-            {/* SEARCH */}
-
             <div className="relative">
               <Search
                 size={17}
@@ -646,8 +666,6 @@ export default function AdminUsersPage() {
                 className="w-full rounded-xl border border-[#DED6C9] bg-[#F5F0E8]/40 py-3 pl-11 pr-4 text-sm outline-none transition placeholder:text-[#8A8177] focus:border-[#171513]"
               />
             </div>
-
-            {/* ROLE */}
 
             <select
               value={roleFilter}
@@ -669,9 +687,15 @@ export default function AdminUsersPage() {
               <option value="admin">
                 Admins
               </option>
-            </select>
 
-            {/* STATUS */}
+              <option value="owner">
+                Owners
+              </option>
+
+              <option value="staff">
+                Staff
+              </option>
+            </select>
 
             <select
               value={statusFilter}
@@ -695,24 +719,25 @@ export default function AdminUsersPage() {
               </option>
             </select>
           </div>
+
+          {(roleFilter ===
+            "owner" ||
+            roleFilter ===
+              "staff") && (
+            <p className="mt-3 rounded-xl bg-[#FFF7E8] px-3 py-2 text-xs text-[#8A5A00]">
+              Owner/Staff filtering requires
+              the corresponding backend role
+              filter to be enabled.
+            </p>
+          )}
         </section>
 
-        {/* ==================================================
-            TABLE
-        ================================================== */}
+        {/* TABLE */}
 
         <section className="overflow-hidden rounded-3xl border border-[#E5DED2] bg-[#FFFDF8]">
-          {/* LOADING */}
-
           {isLoading ? (
             <div className="space-y-3 p-5">
-              {[
-                1,
-                2,
-                3,
-                4,
-                5,
-              ].map(
+              {[1, 2, 3, 4, 5].map(
                 (item) => (
                   <div
                     key={item}
@@ -779,7 +804,9 @@ export default function AdminUsersPage() {
                     {users.map(
                       (user) => (
                         <UserRow
-                          key={user._id}
+                          key={
+                            user._id
+                          }
                           user={user}
                           updatingUser={
                             updatingUser
@@ -803,7 +830,9 @@ export default function AdminUsersPage() {
                 {users.map(
                   (user) => (
                     <div
-                      key={user._id}
+                      key={
+                        user._id
+                      }
                       className="p-4"
                     >
                       <div className="flex items-start gap-3">
@@ -825,8 +854,9 @@ export default function AdminUsersPage() {
                                 user.role
                               )}`}
                             >
-                              {user.role ||
-                                "customer"}
+                              {getRoleLabel(
+                                user.role
+                              )}
                             </span>
 
                             <span
@@ -929,9 +959,7 @@ export default function AdminUsersPage() {
             </>
           )}
 
-          {/* ==================================================
-              PAGINATION
-          ================================================== */}
+          {/* PAGINATION */}
 
           {!isLoading &&
             hasUsers && (
@@ -1001,22 +1029,16 @@ export default function AdminUsersPage() {
         </section>
       </div>
 
-      {/* ======================================================
-          USER DETAIL MODAL
-      ====================================================== */}
+      {/* USER DETAIL MODAL */}
 
-      {(
-        selectedUser ||
-        isLoadingUser
-      ) && (
+      {(selectedUser ||
+        isLoadingUser) && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-[#FFFDF8] shadow-2xl">
-            {/* HEADER */}
-
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#E5DED2] bg-[#FFFDF8] px-5 py-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#B83A2E]">
-                  Customer Details
+                  User Details
                 </p>
 
                 <h2 className="mt-1 text-xl font-semibold">
@@ -1046,8 +1068,6 @@ export default function AdminUsersPage() {
               </div>
             ) : selectedUser ? (
               <div className="space-y-5 p-5 sm:p-6">
-                {/* PROFILE */}
-
                 <div className="flex flex-col gap-4 rounded-2xl bg-[#F5F0E8] p-4 sm:flex-row sm:items-center">
                   <Avatar
                     name={
@@ -1063,7 +1083,9 @@ export default function AdminUsersPage() {
                     </h3>
 
                     <p className="mt-1 break-all text-sm text-[#6B6258]">
-                      {selectedUser.email}
+                      {
+                        selectedUser.email
+                      }
                     </p>
 
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -1072,8 +1094,9 @@ export default function AdminUsersPage() {
                           selectedUser.role
                         )}`}
                       >
-                        {selectedUser.role ||
-                          "customer"}
+                        {getRoleLabel(
+                          selectedUser.role
+                        )}
                       </span>
 
                       <span
@@ -1106,8 +1129,6 @@ export default function AdminUsersPage() {
                       : "Activate"}
                   </button>
                 </div>
-
-                {/* CONTACT */}
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <InfoCard
@@ -1144,8 +1165,6 @@ export default function AdminUsersPage() {
                     )}
                   />
                 </div>
-
-                {/* STATS */}
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-[#E5DED2] p-4">
@@ -1185,8 +1204,6 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
 
-                {/* RECENT ORDERS */}
-
                 <div>
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold">
@@ -1204,9 +1221,7 @@ export default function AdminUsersPage() {
                     <div className="overflow-hidden rounded-2xl border border-[#E5DED2]">
                       <div className="divide-y divide-[#E5DED2]">
                         {selectedUser.recentOrders.map(
-                          (
-                            order
-                          ) => (
+                          (order) => (
                             <div
                               key={
                                 order._id
@@ -1341,8 +1356,6 @@ function UserRow({
 }) {
   return (
     <tr className="border-b border-[#E5DED2] last:border-b-0">
-      {/* USER */}
-
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
           <Avatar
@@ -1365,8 +1378,6 @@ function UserRow({
         </div>
       </td>
 
-      {/* CONTACT */}
-
       <td className="px-5 py-4">
         <div className="max-w-[240px]">
           <p className="truncate text-xs text-[#171513]">
@@ -1381,17 +1392,16 @@ function UserRow({
         </div>
       </td>
 
-      {/* ROLE */}
-
       <td className="px-5 py-4">
         <div className="flex flex-col items-start gap-2">
           <span
-            className={`rounded-full px-2.5 py-1 text-[9px] font-semibold capitalize ${getRoleClass(
+            className={`rounded-full px-2.5 py-1 text-[9px] font-semibold ${getRoleClass(
               user.role
             )}`}
           >
-            {user.role ||
-              "customer"}
+            {getRoleLabel(
+              user.role
+            )}
           </span>
 
           <span
@@ -1406,16 +1416,11 @@ function UserRow({
         </div>
       </td>
 
-      {/* ORDERS */}
-
       <td className="px-5 py-4">
         <p className="text-sm font-semibold">
-          {user.orderCount ||
-            0}
+          {user.orderCount || 0}
         </p>
       </td>
-
-      {/* SPENT */}
 
       <td className="px-5 py-4">
         <p className="text-sm font-semibold">
@@ -1425,8 +1430,6 @@ function UserRow({
         </p>
       </td>
 
-      {/* LOGIN */}
-
       <td className="px-5 py-4">
         <p className="text-xs text-[#6B6258]">
           {formatDate(
@@ -1434,8 +1437,6 @@ function UserRow({
           )}
         </p>
       </td>
-
-      {/* ACTIONS */}
 
       <td className="px-5 py-4">
         <div className="flex justify-end gap-2">
@@ -1445,7 +1446,7 @@ function UserRow({
               onView(user)
             }
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#DED6C9] bg-white transition hover:bg-[#F5F0E8]"
-            title="View customer"
+            title="View user"
           >
             <Eye size={15} />
           </button>
@@ -1502,4 +1503,4 @@ function InfoCard({
       </p>
     </div>
   );
-}
+                      }
