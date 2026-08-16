@@ -1,5 +1,9 @@
 import mongoose from "mongoose";
 
+// =====================================================
+// ORDER ITEM
+// =====================================================
+
 const orderItemSchema = new mongoose.Schema(
   {
     productId: {
@@ -20,7 +24,6 @@ const orderItemSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Price of one base product at the time of ordering
     price: {
       type: Number,
       required: true,
@@ -33,9 +36,9 @@ const orderItemSchema = new mongoose.Schema(
       min: 1,
     },
 
-    // =================================================
+    // -----------------------------------------------
     // CUSTOMIZATION
-    // =================================================
+    // -----------------------------------------------
 
     noodles: {
       type: String,
@@ -90,7 +93,6 @@ const customerSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 100,
     },
 
     email: {
@@ -102,171 +104,8 @@ const customerSchema = new mongoose.Schema(
 
     phone: {
       type: String,
-      required: true,
+      default: "",
       trim: true,
-      maxlength: 20,
-    },
-  },
-  {
-    _id: false,
-  }
-);
-
-// =====================================================
-// BILL
-// =====================================================
-
-const billSchema = new mongoose.Schema(
-  {
-    // -------------------------------------------------
-    // BILL NUMBER
-    // -------------------------------------------------
-
-    billNumber: {
-      type: String,
-      default: undefined,
-      unique: true,
-      sparse: true,
-      trim: true,
-      index: true,
-    },
-
-    // -------------------------------------------------
-    // BILL STATUS
-    // -------------------------------------------------
-
-    status: {
-      type: String,
-      enum: [
-        "not_requested",
-        "requested",
-        "generated",
-        "paid",
-        "cancelled",
-      ],
-      default: "not_requested",
-      index: true,
-    },
-
-    // -------------------------------------------------
-    // BILL AMOUNT
-    // -------------------------------------------------
-
-    amount: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-
-    // -------------------------------------------------
-    // BILL TIMESTAMPS
-    // -------------------------------------------------
-
-    requestedAt: {
-      type: Date,
-      default: null,
-    },
-
-    generatedAt: {
-      type: Date,
-      default: null,
-    },
-
-    paidAt: {
-      type: Date,
-      default: null,
-    },
-  },
-  {
-    _id: false,
-  }
-);
-
-// =====================================================
-// PAYMENT
-// =====================================================
-
-const paymentSchema = new mongoose.Schema(
-  {
-    // -------------------------------------------------
-    // PAYMENT STATUS
-    // -------------------------------------------------
-
-    status: {
-      type: String,
-      enum: [
-        "pending",
-        "paid",
-        "failed",
-        "refunded",
-      ],
-      default: "pending",
-      index: true,
-    },
-
-    // -------------------------------------------------
-    // PAYMENT AMOUNT
-    // -------------------------------------------------
-
-    amount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    // -------------------------------------------------
-    // PAYMENT METHOD
-    // -------------------------------------------------
-
-    method: {
-      type: String,
-      enum: [
-        "cash",
-        "upi",
-        "card",
-        "online",
-        "other",
-      ],
-      default: null,
-    },
-
-    // -------------------------------------------------
-    // TRANSACTION ID
-    // -------------------------------------------------
-
-    transactionId: {
-      type: String,
-      default: undefined,
-      trim: true,
-      unique: true,
-      sparse: true,
-      index: true,
-    },
-
-    // -------------------------------------------------
-    // PAYMENT TIMESTAMP
-    // -------------------------------------------------
-
-    paidAt: {
-      type: Date,
-      default: null,
-    },
-  },
-  {
-    _id: false,
-  }
-);
-
-// =====================================================
-// RECEIPT
-// =====================================================
-
-const receiptSchema = new mongoose.Schema(
-  {
-    // Receipt email sent timestamp
-    sentAt: {
-      type: Date,
-      default: null,
     },
   },
   {
@@ -280,9 +119,9 @@ const receiptSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // =================================================
+    // -----------------------------------------------
     // ORDER NUMBER
-    // =================================================
+    // -----------------------------------------------
 
     orderNumber: {
       type: String,
@@ -292,9 +131,9 @@ const orderSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // =================================================
+    // -----------------------------------------------
     // CUSTOMER
-    // =================================================
+    // -----------------------------------------------
 
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -303,15 +142,14 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Snapshot of customer information at order time
     customer: {
       type: customerSchema,
       required: true,
     },
 
-    // =================================================
+    // -----------------------------------------------
     // TABLE
-    // =================================================
+    // -----------------------------------------------
 
     tableId: {
       type: String,
@@ -321,30 +159,24 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    // =================================================
+    // -----------------------------------------------
     // ORDER ITEMS
-    // =================================================
+    // -----------------------------------------------
 
     items: {
       type: [orderItemSchema],
       required: true,
-
       validate: {
         validator: function (items) {
-          return (
-            Array.isArray(items) &&
-            items.length > 0
-          );
+          return Array.isArray(items) && items.length > 0;
         },
-
-        message:
-          "Order must contain at least one item.",
+        message: "Order must contain at least one item.",
       },
     },
 
-    // =================================================
-    // BILL AMOUNTS
-    // =================================================
+    // -----------------------------------------------
+    // BILL
+    // -----------------------------------------------
 
     subtotal: {
       type: Number,
@@ -370,76 +202,55 @@ const orderSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // =================================================
-    // BILL
-    // =================================================
-
-    bill: {
-      type: billSchema,
-      required: true,
-
-      default: function () {
-        return {
-          status: "not_requested",
-          amount: this.total || 0,
-        };
-      },
-    },
-
-    // =================================================
-    // PAYMENT
-    // =================================================
-
-    payment: {
-      type: paymentSchema,
-      required: true,
-
-      default: function () {
-        return {
-          status: "pending",
-          amount: 0,
-        };
-      },
-    },
-
-    // =================================================
-    // RECEIPT
-    // =================================================
-
-    receipt: {
-      type: receiptSchema,
-
-      default: function () {
-        return {
-          sentAt: null,
-        };
-      },
-    },
-
-    // =================================================
+    // -----------------------------------------------
     // ORDER STATUS
-    // =================================================
+    // -----------------------------------------------
 
     status: {
       type: String,
-
       enum: [
         "pending",
         "confirmed",
         "preparing",
         "ready",
         "served",
-        "completed",
         "cancelled",
       ],
-
       default: "pending",
       index: true,
     },
 
-    // =================================================
-    // PREPARATION
-    // =================================================
+    // -----------------------------------------------
+    // PAYMENT
+    // -----------------------------------------------
+
+    paymentStatus: {
+      type: String,
+      enum: [
+        "pending",
+        "paid",
+        "failed",
+        "refunded",
+      ],
+      default: "pending",
+      index: true,
+    },
+
+    paymentMethod: {
+      type: String,
+      enum: [
+        "cash",
+        "online",
+        "upi",
+        "card",
+        "other",
+      ],
+      default: null,
+    },
+
+    // -----------------------------------------------
+    // PREPARATION TIME
+    // -----------------------------------------------
 
     estimatedPreparationMinutes: {
       type: Number,
@@ -452,9 +263,9 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
-    // =================================================
-    // ORDER TIMESTAMPS
-    // =================================================
+    // -----------------------------------------------
+    // TIMESTAMPS
+    // -----------------------------------------------
 
     confirmedAt: {
       type: Date,
@@ -476,11 +287,6 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
-    completedAt: {
-      type: Date,
-      default: null,
-    },
-
     cancelledAt: {
       type: Date,
       default: null,
@@ -490,7 +296,6 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: "",
       trim: true,
-      maxlength: 500,
     },
   },
   {
@@ -518,17 +323,8 @@ orderSchema.index({
 });
 
 orderSchema.index({
-  "bill.status": 1,
+  paymentStatus: 1,
   createdAt: -1,
-});
-
-orderSchema.index({
-  "payment.status": 1,
-  createdAt: -1,
-});
-
-orderSchema.index({
-  "payment.paidAt": -1,
 });
 
 // =====================================================

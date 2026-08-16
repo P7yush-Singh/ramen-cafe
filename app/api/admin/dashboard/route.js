@@ -1,9 +1,7 @@
 import { connectDB } from "@/lib/mongodb";
-import Order from "@/models/Order";
+import { getServerUser } from "@/lib/auth-server";
 
-import {
-  requireDashboardAccess,
-} from "@/lib/admin-auth";
+import Order from "@/models/Order";
 
 // ============================================================
 // RESPONSE HELPERS
@@ -40,10 +38,52 @@ function errorResponse(
 }
 
 // ============================================================
+// ADMIN AUTH
+// ============================================================
+
+function isAdminUser(user) {
+  if (!user) {
+    return false;
+  }
+
+  const role = String(
+    user.role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  /*
+   * Current authentication uses:
+   *
+   * customer
+   *
+   * Restaurant-side roles can be:
+   *
+   * staff
+   * admin
+   * owner
+   * manager
+   */
+
+  return (
+    role &&
+    role !== "customer"
+  );
+}
+
+// ============================================================
 // IST DATE HELPERS
 // ============================================================
 
 function getIndiaDayRange() {
+  /*
+   * Ramen Cafe operates in India.
+   *
+   * We explicitly calculate today's range
+   * in Asia/Kolkata instead of depending on
+   * the server's timezone.
+   */
+
   const now =
     new Date();
 
@@ -59,14 +99,30 @@ function getIndiaDayRange() {
       }
     ).format(now);
 
+  /*
+   * Example:
+   *
+   * 2026-08-12
+   */
+
   const [
     year,
     month,
     day,
   ] =
-    indiaDate
-      .split("-")
-      .map(Number);
+    indiaDate.split("-").map(
+      Number
+    );
+
+  /*
+   * Asia/Kolkata = UTC+05:30
+   *
+   * Start:
+   * 00:00 IST
+   *
+   * End:
+   * next day 00:00 IST
+   */
 
   const start =
     new Date(
@@ -130,24 +186,40 @@ function getItemCount(items) {
 export async function GET() {
   try {
     // ========================================================
-    // 1. AUTHORIZATION
+    // 1. AUTHENTICATION
     // ========================================================
 
-    const auth =
-      await requireDashboardAccess();
+    const user =
+      await getServerUser();
 
-    if (auth.response) {
-      return auth.response;
+    if (!user) {
+      return errorResponse(
+        "Authentication required.",
+        401
+      );
     }
 
     // ========================================================
-    // 2. DATABASE
+    // 2. ADMIN AUTHORIZATION
+    // ========================================================
+
+    if (
+      !isAdminUser(user)
+    ) {
+      return errorResponse(
+        "You are not authorized to access the dashboard.",
+        403
+      );
+    }
+
+    // ========================================================
+    // 3. DATABASE
     // ========================================================
 
     await connectDB();
 
     // ========================================================
-    // 3. TODAY RANGE
+    // 4. TODAY RANGE
     // ========================================================
 
     const {
@@ -155,6 +227,10 @@ export async function GET() {
       end,
     } =
       getIndiaDayRange();
+
+    // ========================================================
+    // 5. TODAY ORDERS
+    // ========================================================
 
     const todayFilter = {
       createdAt: {
@@ -164,7 +240,7 @@ export async function GET() {
     };
 
     // ========================================================
-    // 4. TODAY SUMMARY
+    // 6. TODAY SUMMARY
     // ========================================================
 
     const todaySummary =
@@ -176,15 +252,22 @@ export async function GET() {
 
         {
           $facet: {
-            // ------------------------------------------------
-            // PAID REVENUE
-            // ------------------------------------------------
+            /*
+             * Revenue:
+             *
+             * Cancelled orders are excluded.
+             *
+             * At the current stage we use order
+             * totals because payment integration
+             * is not yet the source of truth.
+             */
 
             revenue: [
               {
                 $match: {
-                  paymentStatus:
-                    "paid",
+                  status: {
+                    $ne: "cancelled",
+                  },
                 },
               },
 
@@ -219,7 +302,6 @@ export async function GET() {
                         in: {
                           $add: [
                             "$$value",
-
                             {
                               $ifNull: [
                                 "$$this.quantity",
@@ -235,16 +317,15 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
-            // UNIQUE CUSTOMERS
-            // ------------------------------------------------
+            /*
+             * Unique customers
+             */
 
             customers: [
               {
                 $match: {
                   status: {
-                    $ne:
-                      "cancelled",
+                    $ne: "cancelled",
                   },
                 },
               },
@@ -262,9 +343,9 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
-            // ACTIVE TABLES
-            // ------------------------------------------------
+            /*
+             * Active tables today
+             */
 
             tables: [
               {
@@ -290,9 +371,9 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
-            // ORDER STATUS COUNTS
-            // ------------------------------------------------
+            /*
+             * Status counts
+             */
 
             statuses: [
               {
@@ -311,7 +392,7 @@ export async function GET() {
       ]);
 
     // ========================================================
-    // 5. EXTRACT DATA
+    // 7. EXTRACT SUMMARY
     // ========================================================
 
     const summary =
@@ -330,7 +411,7 @@ export async function GET() {
       {};
 
     // ========================================================
-    // 6. STATUS COUNTS
+    // 8. STATUS COUNTS
     // ========================================================
 
     const statusCounts = {
@@ -344,7 +425,8 @@ export async function GET() {
 
     for (
       const item of
-        summary.statuses || []
+        summary.statuses ||
+        []
     ) {
       if (
         Object.prototype.hasOwnProperty.call(
@@ -362,7 +444,7 @@ export async function GET() {
     }
 
     // ========================================================
-    // 7. RECENT ORDERS
+    // 9. RECENT ORDERS
     // ========================================================
 
     const recentOrders =
@@ -379,7 +461,6 @@ export async function GET() {
             "total",
             "status",
             "paymentStatus",
-            "paymentMethod",
             "createdAt",
             "items",
           ].join(" ")
@@ -387,7 +468,7 @@ export async function GET() {
         .lean();
 
     // ========================================================
-    // 8. POPULAR PRODUCTS TODAY
+    // 10. POPULAR PRODUCTS TODAY
     // ========================================================
 
     const popularProducts =
@@ -397,8 +478,7 @@ export async function GET() {
             ...todayFilter,
 
             status: {
-              $ne:
-                "cancelled",
+              $ne: "cancelled",
             },
           },
         },
@@ -442,7 +522,7 @@ export async function GET() {
       ]);
 
     // ========================================================
-    // 9. AVERAGE PAID ORDER VALUE
+    // 11. AVERAGE ORDER VALUE
     // ========================================================
 
     const totalOrders =
@@ -460,17 +540,15 @@ export async function GET() {
     const averageOrderValue =
       totalOrders > 0
         ? Math.round(
-            (
-              totalRevenue /
-                totalOrders +
-              Number.EPSILON
-            ) *
+            (totalRevenue /
+              totalOrders +
+              Number.EPSILON) *
               100
           ) / 100
         : 0;
 
     // ========================================================
-    // 10. RESPONSE
+    // 12. RESPONSE
     // ========================================================
 
     return successResponse({
@@ -489,7 +567,6 @@ export async function GET() {
         revenue:
           totalRevenue,
 
-        // Paid orders
         orders:
           totalOrders,
 
@@ -542,10 +619,6 @@ export async function GET() {
 
             paymentStatus:
               order.paymentStatus,
-
-            paymentMethod:
-              order.paymentMethod ||
-              null,
 
             itemCount:
               getItemCount(

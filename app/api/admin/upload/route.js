@@ -3,50 +3,18 @@ import {
   generateCloudinarySignature,
 } from "@/lib/cloudinary";
 
-import {
-  requireProductAccess,
-} from "@/lib/admin-auth";
-
-// ============================================================
-// POST IMAGE
-// ============================================================
-
-export async function POST(
-  request
-) {
+export async function POST(request) {
   try {
-    // ========================================================
-    // 1. AUTHORIZATION
-    // ========================================================
-
-    const auth =
-      await requireProductAccess();
-
-    if (auth.response) {
-      return auth.response;
-    }
-
-    // ========================================================
-    // 2. CLOUDINARY CONFIG
-    // ========================================================
-
     const {
       cloudName,
       apiKey,
-    } =
-      getCloudinaryConfig();
-
-    // ========================================================
-    // 3. FORM DATA
-    // ========================================================
+    } = getCloudinaryConfig();
 
     const formData =
       await request.formData();
 
     const file =
-      formData.get(
-        "file"
-      );
+      formData.get("file");
 
     if (!file) {
       return Response.json(
@@ -60,10 +28,6 @@ export async function POST(
         }
       );
     }
-
-    // ========================================================
-    // 4. FILE TYPE
-    // ========================================================
 
     if (
       !file.type?.startsWith(
@@ -82,16 +46,12 @@ export async function POST(
       );
     }
 
-    // ========================================================
-    // 5. FILE SIZE
-    // ========================================================
-
+    // 5 MB maximum
     const MAX_FILE_SIZE =
       5 * 1024 * 1024;
 
     if (
-      file.size >
-      MAX_FILE_SIZE
+      file.size > MAX_FILE_SIZE
     ) {
       return Response.json(
         {
@@ -105,37 +65,19 @@ export async function POST(
       );
     }
 
-    // ========================================================
-    // 6. TIMESTAMP
-    // ========================================================
-
     const timestamp =
       Math.floor(
         Date.now() / 1000
       );
 
-    // ========================================================
-    // 7. FOLDER
-    // ========================================================
-
     const folder =
       "ramen-cafe/products";
 
-    // ========================================================
-    // 8. SIGNATURE
-    // ========================================================
-
     const signature =
-      generateCloudinarySignature(
-        {
-          folder,
-          timestamp,
-        }
-      );
-
-    // ========================================================
-    // 9. CLOUDINARY FORM
-    // ========================================================
+      generateCloudinarySignature({
+        folder,
+        timestamp,
+      });
 
     const uploadData =
       new FormData();
@@ -152,9 +94,7 @@ export async function POST(
 
     uploadData.append(
       "timestamp",
-      String(
-        timestamp
-      )
+      String(timestamp)
     );
 
     uploadData.append(
@@ -167,10 +107,6 @@ export async function POST(
       signature
     );
 
-    // ========================================================
-    // 10. UPLOAD
-    // ========================================================
-
     const uploadUrl =
       `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
 
@@ -178,20 +114,13 @@ export async function POST(
       await fetch(
         uploadUrl,
         {
-          method:
-            "POST",
-
-          body:
-            uploadData,
+          method: "POST",
+          body: uploadData,
         }
       );
 
     const result =
       await response.json();
-
-    // ========================================================
-    // 11. CLOUDINARY ERROR
-    // ========================================================
 
     if (!response.ok) {
       console.error(
@@ -202,10 +131,8 @@ export async function POST(
       return Response.json(
         {
           success: false,
-
           error:
-            result?.error
-              ?.message ||
+            result?.error?.message ||
             "Cloudinary upload failed.",
         },
         {
@@ -214,28 +141,16 @@ export async function POST(
       );
     }
 
-    // ========================================================
-    // 12. SUCCESS
-    // ========================================================
-
     return Response.json({
       success: true,
 
       image: {
-        url:
-          result.secure_url,
-
+        url: result.secure_url,
         publicId:
           result.public_id,
-
-        width:
-          result.width,
-
-        height:
-          result.height,
-
-        format:
-          result.format,
+        width: result.width,
+        height: result.height,
+        format: result.format,
       },
     });
   } catch (error) {

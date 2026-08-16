@@ -1,255 +1,218 @@
 import { connectDB } from "@/lib/mongodb";
+import { getServerUser } from "@/lib/auth-server";
 
 import Table from "@/models/Table";
 import Order from "@/models/Order";
 
-import {
-  requireTableAccess,
-} from "@/lib/admin-auth";
+// ==========================================================
+// ACTIVE ORDER STATUSES
+// ==========================================================
 
-// ============================================================
-// ACTIVE ORDER QUERY
-// ============================================================
+const ACTIVE_ORDER_STATUSES = [
+  "pending",
+  "confirmed",
+  "preparing",
+  "ready",
+];
 
-function getActiveOrderQuery() {
+// ==========================================================
+// ADMIN AUTH
+// ==========================================================
+
+async function requireAdmin() {
+  const user = await getServerUser();
+
+  if (!user) {
+    return {
+      user: null,
+      response: Response.json(
+        {
+          success: false,
+          error: "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      ),
+    };
+  }
+
+  const isAdmin =
+    user.role === "admin" ||
+    user.isAdmin === true ||
+    (process.env.ADMIN_EMAIL &&
+      user.email &&
+      user.email.toLowerCase() ===
+        process.env.ADMIN_EMAIL.toLowerCase());
+
+  if (!isAdmin) {
+    return {
+      user: null,
+      response: Response.json(
+        {
+          success: false,
+          error: "Admin access required.",
+        },
+        {
+          status: 403,
+        }
+      ),
+    };
+  }
+
   return {
-    $or: [
-      {
-        status: {
-          $in: [
-            "pending",
-            "confirmed",
-            "preparing",
-            "ready",
-          ],
-        },
-      },
-
-      {
-        status:
-          "served",
-
-        paymentStatus: {
-          $ne: "paid",
-        },
-      },
-    ],
+    user,
+    response: null,
   };
 }
 
-// ============================================================
+// ==========================================================
 // NORMALIZE TABLE ID
-// ============================================================
+// ==========================================================
 
-function normalizeTableId(
-  value
-) {
-  return String(
-    value || ""
-  )
+function normalizeTableId(value) {
+  return String(value || "")
     .trim()
     .toUpperCase();
 }
 
-// ============================================================
+// ==========================================================
 // VALIDATE TABLE ID
-// ============================================================
+// ==========================================================
 
-function isValidTableId(
-  tableId
-) {
-  return /^T[A-Z0-9-]+$/.test(
-    tableId
-  );
+function isValidTableId(tableId) {
+  return /^T[A-Z0-9-]+$/.test(tableId);
 }
 
-// ============================================================
+// ==========================================================
 // GET /api/admin/tables
-// ============================================================
+// ==========================================================
 
 export async function GET() {
   try {
-    // ========================================================
-    // AUTHORIZATION
-    // ========================================================
-
-    const auth =
-      await requireTableAccess();
+    const auth = await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
-    // ========================================================
-    // DATABASE
-    // ========================================================
-
     await connectDB();
 
-    // ========================================================
-    // TABLES
-    // ========================================================
+    // --------------------------------------------------------
+    // LOAD TABLES
+    // --------------------------------------------------------
 
-    const tables =
-      await Table.find({})
-        .sort({
-          tableId: 1,
-        })
-        .lean();
+    const tables = await Table.find({})
+      .sort({
+        tableId: 1,
+      })
+      .lean();
 
-    // ========================================================
-    // ACTIVE ORDERS
-    // ========================================================
+    // --------------------------------------------------------
+    // LOAD ACTIVE ORDERS
+    // --------------------------------------------------------
 
-    const activeOrders =
-      await Order.find(
-        getActiveOrderQuery()
+    const activeOrders = await Order.find({
+      status: {
+        $in: ACTIVE_ORDER_STATUSES,
+      },
+    })
+      .select(
+        "orderNumber tableId status customer total createdAt"
       )
-        .select(
-          [
-            "orderNumber",
-            "tableId",
-            "status",
-            "customer",
-            "total",
-            "paymentStatus",
-            "createdAt",
-          ].join(" ")
-        )
-        .sort({
-          createdAt: -1,
-        })
-        .lean();
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
 
-    // ========================================================
-    // MAP ORDERS
-    // ========================================================
+    // --------------------------------------------------------
+    // MAP ACTIVE ORDERS TO TABLES
+    // --------------------------------------------------------
 
-    const orderMap =
-      new Map();
+    const orderMap = new Map();
 
-    for (
-      const order of
-        activeOrders
-    ) {
-      const tableId =
-        normalizeTableId(
-          order.tableId
-        );
+    for (const order of activeOrders) {
+      const tableId = normalizeTableId(
+        order.tableId
+      );
 
       if (!tableId) {
         continue;
       }
 
-      if (
-        orderMap.has(
-          tableId
-        )
-      ) {
+      if (orderMap.has(tableId)) {
         continue;
       }
 
-      orderMap.set(
-        tableId,
-        order
-      );
+      orderMap.set(tableId, order);
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // BUILD RESPONSE
-    // ========================================================
+    // --------------------------------------------------------
 
-    const result =
-      tables.map(
-        (table) => {
-          const activeOrder =
-            orderMap.get(
-              table.tableId
-            ) || null;
+    const result = tables.map((table) => {
+      const activeOrder =
+        orderMap.get(table.tableId) || null;
 
-          let status =
-            "available";
+      let status = "available";
 
-          if (
-            !table.isActive
-          ) {
-            status =
-              "disabled";
-          } else if (
-            activeOrder
-          ) {
-            status =
-              "occupied";
-          }
+      if (!table.isActive) {
+        status = "disabled";
+      } else if (activeOrder) {
+        status = "occupied";
+      }
 
-          return {
-            ...table,
+      return {
+        ...table,
 
-            _id:
-              table._id.toString(),
+        _id: table._id.toString(),
 
-            status,
+        status,
 
-            activeOrder:
-              activeOrder
-                ? {
-                    orderNumber:
-                      activeOrder.orderNumber,
+        activeOrder: activeOrder
+          ? {
+              orderNumber:
+                activeOrder.orderNumber,
 
-                    status:
-                      activeOrder.status,
+              status:
+                activeOrder.status,
 
-                    customer:
-                      activeOrder
-                        .customer
-                        ?.name ||
-                      "",
+              customer:
+                activeOrder.customer?.name ||
+                "",
 
-                    total:
-                      Number(
-                        activeOrder.total ||
-                          0
-                      ),
+              total:
+                activeOrder.total || 0,
 
-                    paymentStatus:
-                      activeOrder.paymentStatus,
+              createdAt:
+                activeOrder.createdAt,
+            }
+          : null,
+      };
+    });
 
-                    createdAt:
-                      activeOrder.createdAt,
-                  }
-                : null,
-          };
-        }
-      );
-
-    // ========================================================
+    // --------------------------------------------------------
     // COUNTS
-    // ========================================================
+    // --------------------------------------------------------
 
     const counts = {
-      total:
-        result.length,
+      total: result.length,
 
-      available:
-        result.filter(
-          (table) =>
-            table.status ===
-            "available"
-        ).length,
+      available: result.filter(
+        (table) =>
+          table.status === "available"
+      ).length,
 
-      occupied:
-        result.filter(
-          (table) =>
-            table.status ===
-            "occupied"
-        ).length,
+      occupied: result.filter(
+        (table) =>
+          table.status === "occupied"
+      ).length,
 
-      disabled:
-        result.filter(
-          (table) =>
-            table.status ===
-            "disabled"
-        ).length,
+      disabled: result.filter(
+        (table) =>
+          table.status === "disabled"
+      ).length,
     };
 
     return Response.json({
@@ -266,8 +229,7 @@ export async function GET() {
     return Response.json(
       {
         success: false,
-        error:
-          "Unable to load tables.",
+        error: "Unable to load tables.",
       },
       {
         status: 500,
@@ -276,40 +238,31 @@ export async function GET() {
   }
 }
 
-// ============================================================
+// ==========================================================
 // POST /api/admin/tables
-// ============================================================
+// ==========================================================
 
-export async function POST(
-  request
-) {
+export async function POST(request) {
   try {
-    // ========================================================
-    // AUTHORIZATION
-    // ========================================================
-
-    const auth =
-      await requireTableAccess();
+    const auth = await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // BODY
-    // ========================================================
+    // --------------------------------------------------------
 
     let body;
 
     try {
-      body =
-        await request.json();
+      body = await request.json();
     } catch {
       return Response.json(
         {
           success: false,
-          error:
-            "Invalid request body.",
+          error: "Invalid request body.",
         },
         {
           status: 400,
@@ -317,21 +270,19 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // TABLE ID
-    // ========================================================
+    // --------------------------------------------------------
 
-    const tableId =
-      normalizeTableId(
-        body.tableId
-      );
+    const tableId = normalizeTableId(
+      body.tableId
+    );
 
     if (!tableId) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table ID is required.",
+          error: "Table ID is required.",
         },
         {
           status: 400,
@@ -339,11 +290,7 @@ export async function POST(
       );
     }
 
-    if (
-      !isValidTableId(
-        tableId
-      )
-    ) {
+    if (!isValidTableId(tableId)) {
       return Response.json(
         {
           success: false,
@@ -356,24 +303,21 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // NAME
-    // ========================================================
+    // --------------------------------------------------------
 
-    const name =
-      String(
-        body.name ||
-          `Table ${tableId}`
-      )
-        .trim()
-        .slice(0, 100);
+    const name = String(
+      body.name || `Table ${tableId}`
+    )
+      .trim()
+      .slice(0, 100);
 
     if (!name) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table name is required.",
+          error: "Table name is required.",
         },
         {
           status: 400,
@@ -381,27 +325,25 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // DATABASE
-    // ========================================================
+    // --------------------------------------------------------
 
     await connectDB();
 
-    // ========================================================
-    // DUPLICATE
-    // ========================================================
+    // --------------------------------------------------------
+    // DUPLICATE CHECK
+    // --------------------------------------------------------
 
-    const existing =
-      await Table.findOne({
-        tableId,
-      }).lean();
+    const existing = await Table.findOne({
+      tableId,
+    }).lean();
 
     if (existing) {
       return Response.json(
         {
           success: false,
-          error:
-            `${tableId} already exists.`,
+          error: `${tableId} already exists.`,
         },
         {
           status: 409,
@@ -409,35 +351,30 @@ export async function POST(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // CREATE
-    // ========================================================
+    // --------------------------------------------------------
 
-    const table =
-      await Table.create({
-        tableId,
+    const table = await Table.create({
+      tableId,
 
-        name,
+      name,
 
-        isActive:
-          body.isActive !==
-          false,
+      isActive:
+        body.isActive !== false,
 
-        location:
-          String(
-            body.location ||
-              ""
-          )
-            .trim()
-            .slice(0, 100),
+      location: String(
+        body.location || ""
+      )
+        .trim()
+        .slice(0, 100),
 
-        notes:
-          String(
-            body.notes || ""
-          )
-            .trim()
-            .slice(0, 500),
-      });
+      notes: String(
+        body.notes || ""
+      )
+        .trim()
+        .slice(0, 500),
+    });
 
     return Response.json(
       {
@@ -449,16 +386,13 @@ export async function POST(
         table: {
           ...table.toObject(),
 
-          _id:
-            table._id.toString(),
+          _id: table._id.toString(),
 
-          status:
-            table.isActive
-              ? "available"
-              : "disabled",
+          status: table.isActive
+            ? "available"
+            : "disabled",
 
-          activeOrder:
-            null,
+          activeOrder: null,
         },
       },
       {
@@ -471,10 +405,7 @@ export async function POST(
       error
     );
 
-    if (
-      error?.code ===
-      11000
-    ) {
+    if (error?.code === 11000) {
       return Response.json(
         {
           success: false,
@@ -490,8 +421,7 @@ export async function POST(
     return Response.json(
       {
         success: false,
-        error:
-          "Unable to create table.",
+        error: "Unable to create table.",
       },
       {
         status: 500,

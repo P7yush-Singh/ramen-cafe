@@ -1,25 +1,68 @@
 import mongoose from "mongoose";
 
 import { connectDB } from "@/lib/mongodb";
+import { getServerUser } from "@/lib/auth-server";
 
 import User from "@/models/User";
 import Order from "@/models/Order";
 
-import {
-  requireUserAccess,
-  getUserRole,
-  ROLES,
-} from "@/lib/admin-auth";
-
 // ============================================================
-// HELPERS
+// ADMIN AUTH
 // ============================================================
 
-function isValidObjectId(id) {
-  return mongoose.Types.ObjectId.isValid(
-    id
-  );
+async function requireAdmin() {
+  const user =
+    await getServerUser();
+
+  if (!user) {
+    return {
+      user: null,
+      response: Response.json(
+        {
+          success: false,
+          error:
+            "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      ),
+    };
+  }
+
+  const isAdmin =
+    user.role === "admin" ||
+    user.isAdmin === true ||
+    (process.env.ADMIN_EMAIL &&
+      user.email &&
+      user.email.toLowerCase() ===
+        process.env.ADMIN_EMAIL.toLowerCase());
+
+  if (!isAdmin) {
+    return {
+      user: null,
+      response: Response.json(
+        {
+          success: false,
+          error:
+            "Admin access required.",
+        },
+        {
+          status: 403,
+        }
+      ),
+    };
+  }
+
+  return {
+    user,
+    response: null,
+  };
 }
+
+// ============================================================
+// PARAMETER
+// ============================================================
 
 async function getUserId(params) {
   const resolvedParams =
@@ -30,135 +73,18 @@ async function getUserId(params) {
   ).trim();
 }
 
-function cleanText(
-  value,
-  maxLength = 100
-) {
-  return String(value || "")
-    .trim()
-    .slice(0, maxLength);
-}
+// ============================================================
+// VALIDATE OBJECT ID
+// ============================================================
 
-function serializeUser(user) {
-  return {
-    _id: user._id
-      ? user._id.toString()
-      : null,
-
-    name: user.name || "",
-
-    email: user.email || "",
-
-    phone: user.phone || "",
-
-    role:
-      user.role ||
-      ROLES.CUSTOMER,
-
-    isActive:
-      user.isActive !== false,
-
-    lastLoginAt:
-      user.lastLoginAt || null,
-
-    createdAt:
-      user.createdAt || null,
-
-    updatedAt:
-      user.updatedAt || null,
-  };
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(
+    id
+  );
 }
 
 // ============================================================
-// ROLE CHANGE PERMISSION
-// ============================================================
-
-function canChangeRole(
-  actorRole,
-  currentRole,
-  nextRole
-) {
-  // ----------------------------------------------------------
-  // ADMIN
-  // ----------------------------------------------------------
-
-  if (
-    actorRole === ROLES.ADMIN
-  ) {
-    if (
-      ![
-        ROLES.ADMIN,
-        ROLES.OWNER,
-        ROLES.STAFF,
-      ].includes(nextRole)
-    ) {
-      return {
-        allowed: false,
-
-        error:
-          "Invalid target role.",
-      };
-    }
-
-    return {
-      allowed: true,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // OWNER
-  // ----------------------------------------------------------
-
-  if (
-    actorRole === ROLES.OWNER
-  ) {
-    // Owner cannot modify an admin.
-    if (
-      currentRole ===
-        ROLES.ADMIN ||
-      nextRole === ROLES.ADMIN
-    ) {
-      return {
-        allowed: false,
-
-        error:
-          "Owner cannot create, promote, demote, or modify an admin.",
-      };
-    }
-
-    if (
-      ![
-        ROLES.OWNER,
-        ROLES.STAFF,
-      ].includes(nextRole)
-    ) {
-      return {
-        allowed: false,
-
-        error:
-          "Owner can only manage owner and staff roles.",
-      };
-    }
-
-    return {
-      allowed: true,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // STAFF / CUSTOMER
-  // ----------------------------------------------------------
-
-  return {
-    allowed: false,
-
-    error:
-      "You are not authorized to manage users.",
-  };
-}
-
-// ============================================================
-// GET /api/admin/users/[id]
+// GET SINGLE USER
 // ============================================================
 
 export async function GET(
@@ -166,23 +92,20 @@ export async function GET(
   { params }
 ) {
   try {
-    // ========================================================
-    // AUTHORIZATION
-    // ========================================================
+    // --------------------------------------------------------
+    // AUTH
+    // --------------------------------------------------------
 
     const auth =
-      await requireUserAccess();
+      await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
-    const actorRole =
-      getUserRole(auth.user);
-
-    // ========================================================
-    // USER ID
-    // ========================================================
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
 
     const id =
       await getUserId(params);
@@ -215,29 +138,20 @@ export async function GET(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // DATABASE
-    // ========================================================
+    // --------------------------------------------------------
 
     await connectDB();
 
-    // ========================================================
+    // --------------------------------------------------------
     // USER
-    // ========================================================
+    // --------------------------------------------------------
 
     const user =
       await User.findById(id)
         .select(
-          [
-            "name",
-            "email",
-            "phone",
-            "role",
-            "isActive",
-            "lastLoginAt",
-            "createdAt",
-            "updatedAt",
-          ].join(" ")
+          "name email phone role isActive lastLoginAt createdAt updatedAt"
         )
         .lean();
 
@@ -254,18 +168,9 @@ export async function GET(
       );
     }
 
-    // ========================================================
-    // OBJECT ID
-    // ========================================================
-
-    const userObjectId =
-      new mongoose.Types.ObjectId(
-        id
-      );
-
-    // ========================================================
-    // ORDER DATA
-    // ========================================================
+    // --------------------------------------------------------
+    // ORDER STATISTICS
+    // --------------------------------------------------------
 
     const [
       orderStats,
@@ -275,7 +180,9 @@ export async function GET(
         {
           $match: {
             userId:
-              userObjectId,
+              new mongoose.Types.ObjectId(
+                id
+              ),
           },
         },
 
@@ -296,18 +203,12 @@ export async function GET(
 
       Order.find({
         userId:
-          userObjectId,
+          new mongoose.Types.ObjectId(
+            id
+          ),
       })
         .select(
-          [
-            "orderNumber",
-            "status",
-            "tableId",
-            "total",
-            "paymentStatus",
-            "paymentMethod",
-            "createdAt",
-          ].join(" ")
+          "orderNumber status tableId total paymentStatus createdAt"
         )
         .sort({
           createdAt: -1,
@@ -322,15 +223,43 @@ export async function GET(
         totalSpent: 0,
       };
 
-    // ========================================================
+    // --------------------------------------------------------
     // RESPONSE
-    // ========================================================
+    // --------------------------------------------------------
 
     return Response.json({
       success: true,
 
       user: {
-        ...serializeUser(user),
+        _id:
+          user._id.toString(),
+
+        name:
+          user.name || "",
+
+        email:
+          user.email || "",
+
+        phone:
+          user.phone || "",
+
+        role:
+          user.role || "customer",
+
+        isActive:
+          user.isActive !== false,
+
+        lastLoginAt:
+          user.lastLoginAt ||
+          null,
+
+        createdAt:
+          user.createdAt ||
+          null,
+
+        updatedAt:
+          user.updatedAt ||
+          null,
 
         orderCount:
           Number(
@@ -366,38 +295,10 @@ export async function GET(
             paymentStatus:
               order.paymentStatus,
 
-            paymentMethod:
-              order.paymentMethod ||
-              null,
-
             createdAt:
               order.createdAt,
           })
         ),
-
-      permissions: {
-        actorRole,
-
-        targetRole:
-          user.role ||
-          ROLES.CUSTOMER,
-
-        canChangeRole:
-          !(
-            actorRole ===
-              ROLES.OWNER &&
-            user.role ===
-              ROLES.ADMIN
-          ),
-
-        canManageStatus:
-          !(
-            actorRole ===
-              ROLES.OWNER &&
-            user.role ===
-              ROLES.ADMIN
-          ),
-      },
     });
   } catch (error) {
     console.error(
@@ -419,13 +320,15 @@ export async function GET(
 }
 
 // ============================================================
-// PATCH /api/admin/users/[id]
+// PATCH USER
 // ============================================================
 //
-// Supported fields:
+// Currently supported:
+// - isActive
 //
-// role
-// isActive
+// We intentionally DO NOT allow an admin to change another
+// user's role from this endpoint yet.
+// This prevents accidental privilege escalation.
 //
 // ============================================================
 
@@ -434,23 +337,20 @@ export async function PATCH(
   { params }
 ) {
   try {
-    // ========================================================
-    // AUTHORIZATION
-    // ========================================================
+    // --------------------------------------------------------
+    // AUTH
+    // --------------------------------------------------------
 
     const auth =
-      await requireUserAccess();
+      await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
-    const actorRole =
-      getUserRole(auth.user);
-
-    // ========================================================
-    // USER ID
-    // ========================================================
+    // --------------------------------------------------------
+    // ID
+    // --------------------------------------------------------
 
     const id =
       await getUserId(params);
@@ -483,21 +383,26 @@ export async function PATCH(
       );
     }
 
-    // ========================================================
-    // REQUEST BODY
-    // ========================================================
+    // --------------------------------------------------------
+    // BODY
+    // --------------------------------------------------------
 
-    let body;
+    const body =
+      await request.json();
 
-    try {
-      body =
-        await request.json();
-    } catch {
+    // --------------------------------------------------------
+    // ONLY isActive IS EDITABLE
+    // --------------------------------------------------------
+
+    if (
+      typeof body.isActive !==
+      "boolean"
+    ) {
       return Response.json(
         {
           success: false,
           error:
-            "Invalid request body.",
+            "isActive must be a boolean.",
         },
         {
           status: 400,
@@ -505,15 +410,37 @@ export async function PATCH(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
+    // PREVENT SELF DEACTIVATION
+    // --------------------------------------------------------
+
+    if (
+      auth.user?._id &&
+      auth.user._id.toString() ===
+        id &&
+      body.isActive === false
+    ) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "You cannot deactivate your own admin account.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // --------------------------------------------------------
     // DATABASE
-    // ========================================================
+    // --------------------------------------------------------
 
     await connectDB();
 
-    // ========================================================
+    // --------------------------------------------------------
     // FIND USER
-    // ========================================================
+    // --------------------------------------------------------
 
     const existingUser =
       await User.findById(id);
@@ -531,312 +458,82 @@ export async function PATCH(
       );
     }
 
-    const currentRole =
-      getUserRole(
-        existingUser
-      );
-
-    // ========================================================
-    // SELF CHECK
-    // ========================================================
-
-    const actorId =
-      auth.user?._id
-        ? auth.user._id.toString()
-        : null;
-
-    const isSelf =
-      actorId === id;
-
-    // ========================================================
-    // ROLE UPDATE
-    // ========================================================
+    // --------------------------------------------------------
+    // PREVENT DEACTIVATING LAST ADMIN
+    // --------------------------------------------------------
 
     if (
-      body.role !== undefined
+      existingUser.role ===
+        "admin" &&
+      body.isActive === false
     ) {
-      const nextRole =
-        cleanText(
-          body.role,
-          30
-        ).toLowerCase();
-
-      // ------------------------------------------------------
-      // VALID TARGET ROLE
-      // ------------------------------------------------------
+      const activeAdminCount =
+        await User.countDocuments({
+          role: "admin",
+          isActive: true,
+        });
 
       if (
-        ![
-          ROLES.ADMIN,
-          ROLES.OWNER,
-          ROLES.STAFF,
-        ].includes(
-          nextRole
-        )
+        activeAdminCount <= 1
       ) {
         return Response.json(
           {
             success: false,
             error:
-              "Invalid target role.",
+              "You cannot deactivate the last active admin.",
           },
           {
             status: 400,
           }
         );
       }
-
-      // ------------------------------------------------------
-      // SAME ROLE
-      // ------------------------------------------------------
-
-      if (
-        nextRole ===
-        currentRole
-      ) {
-        // Nothing to change.
-      } else {
-        // ----------------------------------------------------
-        // SELF ROLE CHANGE
-        // ----------------------------------------------------
-
-        if (isSelf) {
-          return Response.json(
-            {
-              success: false,
-              error:
-                "You cannot change your own role.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-
-        // ----------------------------------------------------
-        // PERMISSION
-        // ----------------------------------------------------
-
-        const permission =
-          canChangeRole(
-            actorRole,
-            currentRole,
-            nextRole
-          );
-
-        if (
-          !permission.allowed
-        ) {
-          return Response.json(
-            {
-              success: false,
-              error:
-                permission.error,
-            },
-            {
-              status: 403,
-            }
-          );
-        }
-
-        // ----------------------------------------------------
-        // LAST ACTIVE ADMIN
-        // ----------------------------------------------------
-
-        if (
-          currentRole ===
-            ROLES.ADMIN &&
-          nextRole !==
-            ROLES.ADMIN
-        ) {
-          const activeAdminCount =
-            await User.countDocuments(
-              {
-                role:
-                  ROLES.ADMIN,
-
-                isActive:
-                  true,
-              }
-            );
-
-          if (
-            activeAdminCount <=
-            1
-          ) {
-            return Response.json(
-              {
-                success:
-                  false,
-
-                error:
-                  "You cannot remove the role from the last active admin.",
-              },
-              {
-                status: 400,
-              }
-            );
-          }
-        }
-
-        existingUser.role =
-          nextRole;
-      }
     }
 
-    // ========================================================
-    // ACTIVE STATUS UPDATE
-    // ========================================================
+    // --------------------------------------------------------
+    // UPDATE
+    // --------------------------------------------------------
 
-    if (
-      body.isActive !==
-      undefined
-    ) {
-      if (
-        typeof body.isActive !==
-        "boolean"
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "isActive must be a boolean.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-
-      // ------------------------------------------------------
-      // SELF DEACTIVATION
-      // ------------------------------------------------------
-
-      if (
-        isSelf &&
-        body.isActive ===
-          false
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "You cannot deactivate your own account.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-
-      // ------------------------------------------------------
-      // OWNER CANNOT MODIFY ADMIN STATUS
-      // ------------------------------------------------------
-
-      if (
-        actorRole ===
-          ROLES.OWNER &&
-        currentRole ===
-          ROLES.ADMIN
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "Owner cannot modify an admin account.",
-          },
-          {
-            status: 403,
-          }
-        );
-      }
-
-      // ------------------------------------------------------
-      // LAST ACTIVE ADMIN
-      // ------------------------------------------------------
-
-      if (
-        currentRole ===
-          ROLES.ADMIN &&
-        body.isActive ===
-          false
-      ) {
-        const activeAdminCount =
-          await User.countDocuments(
-            {
-              role:
-                ROLES.ADMIN,
-
-              isActive:
-                true,
-            }
-          );
-
-        if (
-          activeAdminCount <=
-          1
-        ) {
-          return Response.json(
-            {
-              success:
-                false,
-
-              error:
-                "You cannot deactivate the last active admin.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-      }
-
-      existingUser.isActive =
-        body.isActive;
-    }
-
-    // ========================================================
-    // CHECK SUPPORTED FIELDS
-    // ========================================================
-
-    if (
-      body.role ===
-        undefined &&
-      body.isActive ===
-        undefined
-    ) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "No supported fields were provided. Supported fields: role, isActive.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    // ========================================================
-    // SAVE
-    // ========================================================
+    existingUser.isActive =
+      body.isActive;
 
     await existingUser.save();
 
-    // ========================================================
+    // --------------------------------------------------------
     // RESPONSE
-    // ========================================================
+    // --------------------------------------------------------
 
     return Response.json({
       success: true,
 
-      message:
-        "User updated successfully.",
+      user: {
+        _id:
+          existingUser._id.toString(),
 
-      user:
-        serializeUser(
-          existingUser
-        ),
+        name:
+          existingUser.name || "",
+
+        email:
+          existingUser.email || "",
+
+        phone:
+          existingUser.phone || "",
+
+        role:
+          existingUser.role ||
+          "customer",
+
+        isActive:
+          existingUser.isActive !==
+          false,
+
+        lastLoginAt:
+          existingUser.lastLoginAt ||
+          null,
+
+        createdAt:
+          existingUser.createdAt ||
+          null,
+      },
     });
   } catch (error) {
     console.error(

@@ -1,175 +1,171 @@
 import { connectDB } from "@/lib/mongodb";
+import { getServerUser } from "@/lib/auth-server";
 
 import Table from "@/models/Table";
 import Order from "@/models/Order";
 
-import {
-  requireTableAccess,
-} from "@/lib/admin-auth";
+// ==========================================================
+// ACTIVE ORDER STATUSES
+// ==========================================================
 
-// ============================================================
-// ACTIVE ORDER QUERY
-// ============================================================
+const ACTIVE_ORDER_STATUSES = [
+  "pending",
+  "confirmed",
+  "preparing",
+  "ready",
+];
 
-function getActiveOrderQuery() {
+// ==========================================================
+// ADMIN AUTH
+// ==========================================================
+
+async function requireAdmin() {
+  const user = await getServerUser();
+
+  if (!user) {
+    return {
+      response: Response.json(
+        {
+          success: false,
+          error: "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      ),
+    };
+  }
+
+  const isAdmin =
+    user.role === "admin" ||
+    user.isAdmin === true ||
+    (process.env.ADMIN_EMAIL &&
+      user.email &&
+      user.email.toLowerCase() ===
+        process.env.ADMIN_EMAIL.toLowerCase());
+
+  if (!isAdmin) {
+    return {
+      response: Response.json(
+        {
+          success: false,
+          error: "Admin access required.",
+        },
+        {
+          status: 403,
+        }
+      ),
+    };
+  }
+
   return {
-    $or: [
-      {
-        status: {
-          $in: [
-            "pending",
-            "confirmed",
-            "preparing",
-            "ready",
-          ],
-        },
-      },
-
-      {
-        status:
-          "served",
-
-        paymentStatus: {
-          $ne: "paid",
-        },
-      },
-    ],
+    response: null,
   };
 }
 
-// ============================================================
-// TABLE ID
-// ============================================================
+// ==========================================================
+// GET PARAM TABLE ID
+// ==========================================================
 
-async function getTableId(
-  params
-) {
-  const resolvedParams =
-    await params;
+async function getTableId(params) {
+  const resolvedParams = await params;
 
   return String(
-    resolvedParams?.id ||
-      ""
+    resolvedParams?.id || ""
   )
     .trim()
     .toUpperCase();
 }
 
-// ============================================================
+// ==========================================================
 // GET ACTIVE ORDER
-// ============================================================
+// ==========================================================
 
-async function getActiveOrder(
-  tableId
-) {
+async function getActiveOrder(tableId) {
   return Order.findOne({
     tableId,
 
-    ...getActiveOrderQuery(),
+    status: {
+      $in: ACTIVE_ORDER_STATUSES,
+    },
   })
     .sort({
       createdAt: -1,
     })
     .select(
-      [
-        "orderNumber",
-        "status",
-        "customer",
-        "total",
-        "paymentStatus",
-        "createdAt",
-      ].join(" ")
+      "orderNumber status customer total createdAt"
     )
     .lean();
 }
 
-// ============================================================
+// ==========================================================
 // BUILD TABLE RESPONSE
-// ============================================================
+// ==========================================================
 
 function buildTableResponse(
   table,
   activeOrder
 ) {
-  let status =
-    "available";
+  let status = "available";
 
-  if (
-    !table.isActive
-  ) {
-    status =
-      "disabled";
-  } else if (
-    activeOrder
-  ) {
-    status =
-      "occupied";
+  if (!table.isActive) {
+    status = "disabled";
+  } else if (activeOrder) {
+    status = "occupied";
   }
 
   return {
     ...table.toObject(),
 
-    _id:
-      table._id.toString(),
+    _id: table._id.toString(),
 
     status,
 
-    activeOrder:
-      activeOrder
-        ? {
-            orderNumber:
-              activeOrder.orderNumber,
+    activeOrder: activeOrder
+      ? {
+          orderNumber:
+            activeOrder.orderNumber,
 
-            status:
-              activeOrder.status,
+          status:
+            activeOrder.status,
 
-            customer:
-              activeOrder.customer
-                ?.name || "",
+          customer:
+            activeOrder.customer?.name ||
+            "",
 
-            total:
-              Number(
-                activeOrder.total ||
-                  0
-              ),
+          total:
+            activeOrder.total || 0,
 
-            paymentStatus:
-              activeOrder.paymentStatus,
-
-            createdAt:
-              activeOrder.createdAt,
-          }
-        : null,
+          createdAt:
+            activeOrder.createdAt,
+        }
+      : null,
   };
 }
 
-// ============================================================
+// ==========================================================
 // GET SINGLE TABLE
-// ============================================================
+// ==========================================================
 
 export async function GET(
   request,
   { params }
 ) {
   try {
-    const auth =
-      await requireTableAccess();
+    const auth = await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
     const tableId =
-      await getTableId(
-        params
-      );
+      await getTableId(params);
 
     if (!tableId) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table ID is required.",
+          error: "Table ID is required.",
         },
         {
           status: 400,
@@ -188,8 +184,7 @@ export async function GET(
       return Response.json(
         {
           success: false,
-          error:
-            "Table not found.",
+          error: "Table not found.",
         },
         {
           status: 404,
@@ -198,18 +193,15 @@ export async function GET(
     }
 
     const activeOrder =
-      await getActiveOrder(
-        tableId
-      );
+      await getActiveOrder(tableId);
 
     return Response.json({
       success: true,
 
-      table:
-        buildTableResponse(
-          table,
-          activeOrder
-        ),
+      table: buildTableResponse(
+        table,
+        activeOrder
+      ),
     });
   } catch (error) {
     console.error(
@@ -220,8 +212,7 @@ export async function GET(
     return Response.json(
       {
         success: false,
-        error:
-          "Unable to load table.",
+        error: "Unable to load table.",
       },
       {
         status: 500,
@@ -230,33 +221,29 @@ export async function GET(
   }
 }
 
-// ============================================================
+// ==========================================================
 // PATCH TABLE
-// ============================================================
+// ==========================================================
 
 export async function PATCH(
   request,
   { params }
 ) {
   try {
-    const auth =
-      await requireTableAccess();
+    const auth = await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
     const tableId =
-      await getTableId(
-        params
-      );
+      await getTableId(params);
 
     if (!tableId) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table ID is required.",
+          error: "Table ID is required.",
         },
         {
           status: 400,
@@ -275,8 +262,7 @@ export async function PATCH(
       return Response.json(
         {
           success: false,
-          error:
-            "Table not found.",
+          error: "Table not found.",
         },
         {
           status: 404,
@@ -287,14 +273,12 @@ export async function PATCH(
     let body;
 
     try {
-      body =
-        await request.json();
+      body = await request.json();
     } catch {
       return Response.json(
         {
           success: false,
-          error:
-            "Invalid request body.",
+          error: "Invalid request body.",
         },
         {
           status: 400,
@@ -302,29 +286,23 @@ export async function PATCH(
       );
     }
 
-    // ========================================================
-    // ACTIVE ORDER
-    // ========================================================
+    // --------------------------------------------------------
+    // CHECK ACTIVE ORDER
+    // --------------------------------------------------------
 
     const activeOrder =
-      await getActiveOrder(
-        tableId
-      );
+      await getActiveOrder(tableId);
 
-    // ========================================================
+    // --------------------------------------------------------
     // NAME
-    // ========================================================
+    // --------------------------------------------------------
 
-    if (
-      body.name !==
-      undefined
-    ) {
-      const name =
-        String(
-          body.name || ""
-        )
-          .trim()
-          .slice(0, 100);
+    if (body.name !== undefined) {
+      const name = String(
+        body.name || ""
+      )
+        .trim()
+        .slice(0, 100);
 
       if (!name) {
         return Response.json(
@@ -339,23 +317,20 @@ export async function PATCH(
         );
       }
 
-      table.name =
-        name;
+      table.name = name;
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // ACTIVE / DISABLED
-    // ========================================================
+    // --------------------------------------------------------
 
-    if (
-      body.isActive !==
-      undefined
-    ) {
-      const nextActive =
-        Boolean(
-          body.isActive
-        );
+    if (body.isActive !== undefined) {
+      const nextActive = Boolean(
+        body.isActive
+      );
 
+      // Do not disable a table that
+      // currently has an active order.
       if (
         !nextActive &&
         activeOrder
@@ -365,7 +340,6 @@ export async function PATCH(
             success: false,
             error:
               `Cannot disable ${tableId} while it has an active order.`,
-
             orderNumber:
               activeOrder.orderNumber,
           },
@@ -379,48 +353,41 @@ export async function PATCH(
         nextActive;
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // LOCATION
-    // ========================================================
+    // --------------------------------------------------------
 
     if (
-      body.location !==
-      undefined
+      body.location !== undefined
     ) {
-      table.location =
-        String(
-          body.location ||
-            ""
-        )
-          .trim()
-          .slice(0, 100);
+      table.location = String(
+        body.location || ""
+      )
+        .trim()
+        .slice(0, 100);
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // NOTES
-    // ========================================================
+    // --------------------------------------------------------
 
-    if (
-      body.notes !==
-      undefined
-    ) {
-      table.notes =
-        String(
-          body.notes || ""
-        )
-          .trim()
-          .slice(0, 500);
+    if (body.notes !== undefined) {
+      table.notes = String(
+        body.notes || ""
+      )
+        .trim()
+        .slice(0, 500);
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // SAVE
-    // ========================================================
+    // --------------------------------------------------------
 
     await table.save();
 
-    // ========================================================
-    // RESPONSE
-    // ========================================================
+    // --------------------------------------------------------
+    // RETURN
+    // --------------------------------------------------------
 
     return Response.json({
       success: true,
@@ -428,11 +395,10 @@ export async function PATCH(
       message:
         "Table updated successfully.",
 
-      table:
-        buildTableResponse(
-          table,
-          activeOrder
-        ),
+      table: buildTableResponse(
+        table,
+        activeOrder
+      ),
     });
   } catch (error) {
     console.error(
@@ -453,33 +419,29 @@ export async function PATCH(
   }
 }
 
-// ============================================================
+// ==========================================================
 // DELETE TABLE
-// ============================================================
+// ==========================================================
 
 export async function DELETE(
   request,
   { params }
 ) {
   try {
-    const auth =
-      await requireTableAccess();
+    const auth = await requireAdmin();
 
     if (auth.response) {
       return auth.response;
     }
 
     const tableId =
-      await getTableId(
-        params
-      );
+      await getTableId(params);
 
     if (!tableId) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table ID is required.",
+          error: "Table ID is required.",
         },
         {
           status: 400,
@@ -489,20 +451,27 @@ export async function DELETE(
 
     await connectDB();
 
-    // ========================================================
-    // ACTIVE ORDER
-    // ========================================================
+    // --------------------------------------------------------
+    // CHECK ACTIVE ORDER
+    // --------------------------------------------------------
 
     const activeOrder =
-      await getActiveOrder(
-        tableId
-      );
+      await Order.findOne({
+        tableId,
+
+        status: {
+          $in: ACTIVE_ORDER_STATUSES,
+        },
+      })
+        .select(
+          "_id orderNumber"
+        )
+        .lean();
 
     if (activeOrder) {
       return Response.json(
         {
           success: false,
-
           error:
             `Cannot delete ${tableId} while it has an active order.`,
 
@@ -515,23 +484,20 @@ export async function DELETE(
       );
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // DELETE
-    // ========================================================
+    // --------------------------------------------------------
 
     const deleted =
-      await Table.findOneAndDelete(
-        {
-          tableId,
-        }
-      );
+      await Table.findOneAndDelete({
+        tableId,
+      });
 
     if (!deleted) {
       return Response.json(
         {
           success: false,
-          error:
-            "Table not found.",
+          error: "Table not found.",
         },
         {
           status: 404,
