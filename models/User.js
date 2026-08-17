@@ -30,6 +30,7 @@ const UserSchema =
           "customer",
           "admin",
           "owner",
+          "staff",
         ],
         default: "customer",
       },
