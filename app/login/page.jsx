@@ -256,7 +256,7 @@ export default function LoginPage() {
 
       <header className="border-b border-[#E5DED2]">
 
-        <div className="mx-auto flex h-20 max-w-[1100px] items-center justify-between px-4 sm:px-8">
+        <div className="mx-auto flex h-20 max-w-275 items-center justify-between px-4 sm:px-8">
 
           {/* BACK */}
 
@@ -298,7 +298,7 @@ export default function LoginPage() {
 
       <div className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-12">
 
-        <div className="w-full max-w-[430px]">
+        <div className="w-full max-w-107.5">
 
           {/* BRAND MARK */}
 

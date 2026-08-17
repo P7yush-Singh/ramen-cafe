@@ -119,7 +119,7 @@ export default function OrderDetailsPage({
     return (
       <main className="min-h-screen bg-[#F5F0E8] px-4 py-12">
 
-        <div className="mx-auto max-w-[760px] lg:mb-16">
+        <div className="mx-auto max-w-190">
 
           <div className="h-8 w-32 animate-pulse rounded bg-[#DED6C9]" />
 
@@ -216,7 +216,7 @@ export default function OrderDetailsPage({
   return (
     <main className="min-h-screen bg-[#F5F0E8] px-4 py-7 sm:py-10">
 
-      <div className="mx-auto max-w-[760px]">
+      <div className="mx-auto max-w-[760px] mb-16">
 
         {/* ==========================================
             HEADER

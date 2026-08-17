@@ -34,51 +34,110 @@ export default function OrdersPage() {
   }, []);
 
   async function loadOrders() {
-    try {
-      setIsLoading(true);
-      setError("");
+  try {
+    setIsLoading(true);
+    setError("");
 
-      const response =
-        await fetch(
-          "/api/orders",
-          {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-            "Unable to load orders."
-        );
+    const response = await fetch(
+      "/api/orders",
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
       }
+    );
 
-      setOrders(
-        Array.isArray(
-          data.orders
-        )
-          ? data.orders
-          : []
-      );
-    } catch (error) {
+    // ========================================================
+    // READ RESPONSE SAFELY
+    // ========================================================
+
+    const contentType =
+      response.headers.get(
+        "content-type"
+      ) || "";
+
+    let data = {};
+
+    if (
+      contentType.includes(
+        "application/json"
+      )
+    ) {
+      data =
+        await response.json();
+    } else {
+      const text =
+        await response.text();
+
       console.error(
-        "Orders loading error:",
-        error
+        "Orders API returned non-JSON response:",
+        text
       );
 
-      setError(
-        error.message ||
-          "Unable to load your orders."
+      throw new Error(
+        `Orders API returned an invalid response (${response.status}).`
       );
-    } finally {
-      setIsLoading(false);
     }
+
+    // ========================================================
+    // AUTH
+    // ========================================================
+
+    if (
+      response.status === 401
+    ) {
+      const redirect =
+        `${window.location.pathname}${window.location.search}`;
+
+      window.location.href =
+        `/login?redirect=${encodeURIComponent(
+          redirect
+        )}`;
+
+      return;
+    }
+
+    // ========================================================
+    // API ERROR
+    // ========================================================
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          "Unable to load orders."
+      );
+    }
+
+    // ========================================================
+    // ORDERS
+    // ========================================================
+
+    setOrders(
+      Array.isArray(
+        data?.orders
+      )
+        ? data.orders
+        : []
+    );
+  } catch (error) {
+    console.error(
+      "Orders loading error:",
+      error
+    );
+
+    setOrders([]);
+
+    setError(
+      error?.message ||
+        "Unable to load your orders."
+    );
+  } finally {
+    setIsLoading(false);
   }
+}
 
   function formatPrice(
     value

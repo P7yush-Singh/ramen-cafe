@@ -651,6 +651,171 @@ function getPreparationMinutes() {
 }
 
 // ============================================================
+// GET /api/orders
+// ============================================================
+
+export async function GET(request) {
+  try {
+    // ========================================================
+    // 1. AUTHENTICATION
+    // ========================================================
+
+    const user = await getServerUser();
+
+    if (!user) {
+      return errorResponse(
+        "You must be logged in to view your orders.",
+        401
+      );
+    }
+
+    // ========================================================
+    // 2. VALIDATE USER ID
+    // ========================================================
+
+    const userId = user?._id
+      ? String(user._id)
+      : "";
+
+    if (
+      !mongoose.Types.ObjectId.isValid(userId)
+    ) {
+      return errorResponse(
+        "Invalid authenticated user.",
+        401
+      );
+    }
+
+    // ========================================================
+    // 3. DATABASE
+    // ========================================================
+
+    await connectDB();
+
+    // ========================================================
+    // 4. GET USER ORDERS
+    // ========================================================
+
+    const orders = await Order.find({
+      userId: new mongoose.Types.ObjectId(userId),
+    })
+      .sort({
+        createdAt: -1,
+      })
+      .lean();
+
+    // ========================================================
+    // 5. RESPONSE
+    // ========================================================
+
+    return successResponse({
+      orders: orders.map((order) => ({
+        _id: order._id.toString(),
+
+        orderId: order._id.toString(),
+
+        orderNumber:
+          order.orderNumber,
+
+        userId:
+          order.userId?.toString(),
+
+        customer:
+          order.customer || null,
+
+        tableId:
+          order.tableId,
+
+        items:
+          Array.isArray(order.items)
+            ? order.items
+            : [],
+
+        subtotal:
+          Number(order.subtotal || 0),
+
+        taxRate:
+          Number(order.taxRate || 0),
+
+        taxAmount:
+          Number(order.taxAmount || 0),
+
+        total:
+          Number(order.total || 0),
+
+        status:
+          order.status,
+
+        paymentStatus:
+          order.paymentStatus,
+
+        paymentMethod:
+          order.paymentMethod || null,
+
+        estimatedPreparationMinutes:
+          order.estimatedPreparationMinutes,
+
+        estimatedReadyAt:
+          order.estimatedReadyAt,
+
+        createdAt:
+          order.createdAt,
+
+        updatedAt:
+          order.updatedAt,
+      })),
+    });
+  } catch (error) {
+    console.error(
+      "GET /api/orders error:",
+      error
+    );
+
+    // ========================================================
+    // MONGOOSE
+    // ========================================================
+
+    if (
+      error?.name ===
+      "CastError"
+    ) {
+      return errorResponse(
+        "Invalid order data.",
+        400
+      );
+    }
+
+    // ========================================================
+    // DATABASE
+    // ========================================================
+
+    if (
+      error?.name ===
+        "MongoServerSelectionError" ||
+      error?.name ===
+        "MongoNetworkError" ||
+      error?.code === "ECONNREFUSED" ||
+      error?.code === "ETIMEDOUT" ||
+      error?.code === "ENOTFOUND"
+    ) {
+      return errorResponse(
+        "Database is temporarily unavailable. Please try again.",
+        503
+      );
+    }
+
+    // ========================================================
+    // FALLBACK
+    // ========================================================
+
+    return errorResponse(
+      "Unable to load your orders.",
+      500
+    );
+  }
+}
+
+// ============================================================
 // POST /api/orders
 // ============================================================
 

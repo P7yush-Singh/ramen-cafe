@@ -545,7 +545,7 @@ export default function AdminUsersPage() {
 
   return (
     <main className="min-h-screen bg-[#F5F0E8]">
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 md:px-8 lg:px-10">
+      <div className="mx-auto max-w-375 px-4 py-6 sm:px-6 md:px-8 lg:px-10">
         {/* HEADER */}
 
         <header className="mb-7">
@@ -1033,7 +1033,7 @@ export default function AdminUsersPage() {
 
       {(selectedUser ||
         isLoadingUser) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-[#FFFDF8] shadow-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#E5DED2] bg-[#FFFDF8] px-5 py-4">
               <div>
@@ -1363,12 +1363,12 @@ function UserRow({
           />
 
           <div className="min-w-0">
-            <p className="max-w-[220px] truncate text-sm font-semibold">
+            <p className="max-w-55 truncate text-sm font-semibold">
               {user.name ||
                 "Unnamed User"}
             </p>
 
-            <p className="max-w-[220px] truncate text-xs text-[#8A8177]">
+            <p className="max-w-55 truncate text-xs text-[#8A8177]">
               Joined{" "}
               {formatDate(
                 user.createdAt
@@ -1379,7 +1379,7 @@ function UserRow({
       </td>
 
       <td className="px-5 py-4">
-        <div className="max-w-[240px]">
+        <div className="max-w-60">
           <p className="truncate text-xs text-[#171513]">
             {user.email}
           </p>

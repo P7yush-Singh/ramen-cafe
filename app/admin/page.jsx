@@ -246,7 +246,7 @@ export default function AdminDashboardPage() {
   ) {
     return (
       <main className="min-h-screen bg-[#F5F0E8]">
-        <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-375 px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex min-h-[60vh] items-center justify-center">
             <div className="text-center">
               <Loader2
@@ -275,7 +275,7 @@ export default function AdminDashboardPage() {
   ) {
     return (
       <main className="min-h-screen bg-[#F5F0E8]">
-        <div className="mx-auto max-w-[700px] px-4 py-20 text-center">
+        <div className="mx-auto max-w-175 px-4 py-20 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-2xl">
             ⚠️
           </div>
@@ -354,14 +354,14 @@ export default function AdminDashboardPage() {
   return (
     <main className="min-h-screen bg-[#F5F0E8]">
       <div className="border-b border-[#E5DED2]">
-        <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+        <div className="mx-auto max-w-375 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E]">
                 Restaurant Overview
               </p>
 
-              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
+              <h1 className="mt-2 text-3xl font-semibold tracking-tighter sm:text-4xl">
                 Dashboard
               </h1>
 
@@ -399,7 +399,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="mx-auto max-w-375 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {error && (
           <div className="mb-6 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-xs text-amber-800">
             Dashboard refresh failed:{" "}
@@ -727,7 +727,7 @@ function DashboardStat({
         {label}
       </p>
 
-      <p className="mt-1 text-3xl font-semibold tracking-[-0.05em]">
+      <p className="mt-1 text-3xl font-semibold tracking-tighter">
         {value}
       </p>
 

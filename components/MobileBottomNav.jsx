@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Home, Utensils, ShoppingBag, UserRound } from "lucide-react";
+import { Home, Utensils, NotebookPen, ScrollText } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 const navigation = [
@@ -16,14 +16,14 @@ const navigation = [
     icon: Utensils,
   },
   {
-    label: "Cart",
-    href: "/cart",
-    icon: ShoppingBag,
+    label: "Orders",
+    href: "/orders",
+    icon: NotebookPen,
   },
   {
-    label: "Account",
-    href: "/account",
-    icon: UserRound,
+    label: "Bill",
+    href: "/bill",
+    icon: ScrollText,
   },
 ];
 
