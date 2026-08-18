@@ -564,6 +564,338 @@ function getPreparationMinutes() {
 }
 
 // ============================================================
+// GET /api/orders
+// ============================================================
+// Returns orders belonging ONLY to the currently logged-in
+// customer.
+// ============================================================
+
+export async function GET(request) {
+  try {
+    // ----------------------------------------------------------
+    // 1. AUTHENTICATION
+    // ----------------------------------------------------------
+
+    const user =
+      await getServerUser();
+
+    if (!user) {
+      return errorResponse(
+        "Authentication required.",
+        401
+      );
+    }
+
+    // ----------------------------------------------------------
+    // 2. USER ID
+    // ----------------------------------------------------------
+
+    const userId =
+      user?._id
+        ? String(user._id)
+        : "";
+
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        userId
+      )
+    ) {
+      return errorResponse(
+        "Invalid authenticated user.",
+        401
+      );
+    }
+
+    // ----------------------------------------------------------
+    // 3. DATABASE
+    // ----------------------------------------------------------
+
+    await connectDB();
+
+    // ----------------------------------------------------------
+    // 4. LOAD CUSTOMER ORDERS
+    // ----------------------------------------------------------
+
+    const orders =
+      await Order.find({
+        userId:
+          new mongoose.Types.ObjectId(
+            userId
+          ),
+      })
+        .sort({
+          createdAt: -1,
+        })
+        .lean();
+
+    // ----------------------------------------------------------
+    // 5. SERIALIZE
+    // ----------------------------------------------------------
+
+    const serializedOrders =
+      orders.map((order) => ({
+        _id:
+          order._id?.toString(),
+
+        orderNumber:
+          order.orderNumber,
+
+        userId:
+          order.userId?.toString(),
+
+        customer: order.customer
+          ? {
+              name:
+                order.customer.name ||
+                "",
+
+              email:
+                order.customer.email ||
+                "",
+
+              phone:
+                order.customer.phone ||
+                "",
+            }
+          : null,
+
+        tableId:
+          order.tableId || "",
+
+        items: Array.isArray(
+          order.items
+        )
+          ? order.items.map(
+              (item) => ({
+                productId:
+                  item.productId,
+
+                name:
+                  item.name,
+
+                image:
+                  item.image || "",
+
+                price:
+                  Number(
+                    item.price || 0
+                  ),
+
+                quantity:
+                  Number(
+                    item.quantity || 0
+                  ),
+
+                noodles:
+                  item.noodles || "",
+
+                spice:
+                  item.spice || "",
+
+                addons:
+                  Array.isArray(
+                    item.addons
+                  )
+                    ? item.addons.map(
+                        (addon) => ({
+                          name:
+                            addon.name,
+
+                          price:
+                            Number(
+                              addon.price ||
+                                0
+                            ),
+                        })
+                      )
+                    : [],
+
+                total:
+                  Number(
+                    item.total || 0
+                  ),
+              })
+            )
+          : [],
+
+        subtotal:
+          Number(
+            order.subtotal || 0
+          ),
+
+        taxRate:
+          Number(
+            order.taxRate || 0
+          ),
+
+        taxAmount:
+          Number(
+            order.taxAmount || 0
+          ),
+
+        total:
+          Number(
+            order.total || 0
+          ),
+
+        status:
+          order.status,
+
+        bill: order.bill
+          ? {
+              billNumber:
+                order.bill.billNumber ||
+                null,
+
+              status:
+                order.bill.status ||
+                "not_requested",
+
+              amount:
+                Number(
+                  order.bill.amount || 0
+                ),
+
+              requestedAt:
+                order.bill.requestedAt ||
+                null,
+
+              generatedAt:
+                order.bill.generatedAt ||
+                null,
+
+              paidAt:
+                order.bill.paidAt ||
+                null,
+            }
+          : null,
+
+        payment: order.payment
+          ? {
+              status:
+                order.payment.status ||
+                "pending",
+
+              amount:
+                Number(
+                  order.payment.amount || 0
+                ),
+
+              method:
+                order.payment.method ||
+                null,
+
+              transactionId:
+                order.payment
+                  .transactionId ||
+                null,
+
+              paidAt:
+                order.payment.paidAt ||
+                null,
+            }
+          : null,
+
+        receipt: order.receipt
+          ? {
+              sentAt:
+                order.receipt.sentAt ||
+                null,
+            }
+          : null,
+
+        estimatedPreparationMinutes:
+          Number(
+            order.estimatedPreparationMinutes ||
+              0
+          ),
+
+        estimatedReadyAt:
+          order.estimatedReadyAt ||
+          null,
+
+        confirmedAt:
+          order.confirmedAt ||
+          null,
+
+        preparingAt:
+          order.preparingAt ||
+          null,
+
+        readyAt:
+          order.readyAt ||
+          null,
+
+        servedAt:
+          order.servedAt ||
+          null,
+
+        completedAt:
+          order.completedAt ||
+          null,
+
+        cancelledAt:
+          order.cancelledAt ||
+          null,
+
+        cancellationReason:
+          order.cancellationReason ||
+          "",
+
+        createdAt:
+          order.createdAt ||
+          null,
+
+        updatedAt:
+          order.updatedAt ||
+          null,
+      }));
+
+    // ----------------------------------------------------------
+    // 6. RESPONSE
+    // ----------------------------------------------------------
+
+    return successResponse({
+      orders:
+        serializedOrders,
+    });
+  } catch (error) {
+    console.error(
+      "GET /api/orders error:",
+      error
+    );
+
+    // ----------------------------------------------------------
+    // DATABASE ERRORS
+    // ----------------------------------------------------------
+
+    if (
+      error?.name ===
+        "MongoServerSelectionError" ||
+      error?.name ===
+        "MongoNetworkError" ||
+      error?.code ===
+        "ECONNREFUSED" ||
+      error?.code ===
+        "ETIMEDOUT" ||
+      error?.code ===
+        "ENOTFOUND"
+    ) {
+      return errorResponse(
+        "Database is temporarily unavailable. Please try again.",
+        503
+      );
+    }
+
+    return errorResponse(
+      error?.message ||
+        "Unable to load orders.",
+      500
+    );
+  }
+}
+
+// ============================================================
 // POST /api/orders
 // ============================================================
 

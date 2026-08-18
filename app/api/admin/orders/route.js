@@ -2,7 +2,7 @@ import { connectDB } from "@/lib/mongodb";
 import Order from "@/models/Order";
 
 import {
-  requireOrderAccess
+  requireUserAccess
 } from "@/lib/admin-auth";
 
 // ============================================================
