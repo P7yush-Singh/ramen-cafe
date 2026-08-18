@@ -1,8 +1,7 @@
-import mongoose from "mongoose";
-
 import { connectDB } from "@/lib/mongodb";
-import { getServerUser } from "@/lib/auth-server";
 import Order from "@/models/Order";
+
+import {requireUserAccess,} from "@/lib/admin-auth";
 
 // ============================================================
 // CONSTANTS
@@ -14,199 +13,149 @@ const ALLOWED_STATUSES = [
   "preparing",
   "ready",
   "served",
+  "completed",
   "cancelled",
 ];
 
+const ALLOWED_PAYMENT_STATUSES = [
+  "pending",
+  "paid",
+  "failed",
+  "refunded",
+];
+
 const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
-
-// ============================================================
-// RESPONSE HELPERS
-// ============================================================
-
-function successResponse(
-  data,
-  status = 200
-) {
-  return Response.json(
-    {
-      success: true,
-      ...data,
-    },
-    {
-      status,
-    }
-  );
-}
-
-function errorResponse(
-  message,
-  status = 400,
-  extra = {}
-) {
-  return Response.json(
-    {
-      success: false,
-      error: message,
-      ...extra,
-    },
-    {
-      status,
-    }
-  );
-}
+const MAX_LIMIT = 50;
 
 // ============================================================
 // HELPERS
 // ============================================================
 
-function normalizeText(
-  value,
-  maxLength = 200
-) {
-  return String(value ?? "")
+function cleanText(value, maxLength = 100) {
+  return String(value || "")
     .trim()
     .slice(0, maxLength);
 }
 
-// ============================================================
-// ADMIN AUTHORIZATION
-// ============================================================
-
-function isAdminUser(user) {
-  if (!user) {
-    return false;
-  }
-
-  /*
-   * Normal customers are explicitly blocked.
-   *
-   * This allows restaurant-side roles such as:
-   *
-   * admin
-   * owner
-   * staff
-   * manager
-   *
-   * without requiring us to change the
-   * existing customer authentication flow.
-   */
-
-  const role = String(
-    user.role || ""
-  )
-    .trim()
-    .toLowerCase();
-
-  if (!role) {
-    return false;
-  }
-
-  return role !== "customer";
+function escapeRegex(value) {
+  return value.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
 }
 
-// ============================================================
-// SERIALIZE ORDER
-// ============================================================
-
 function serializeOrder(order) {
+  if (!order) return null;
+
   return {
-    id:
-      order._id
-        ? String(order._id)
-        : null,
+    _id: order._id?.toString(),
+    orderNumber: order.orderNumber,
 
-    orderId:
-      order._id
-        ? String(order._id)
-        : null,
+    userId: order.userId?.toString(),
 
-    orderNumber:
-      order.orderNumber,
+    customer: order.customer
+      ? {
+          name: order.customer.name || "",
+          email: order.customer.email || "",
+          phone: order.customer.phone || "",
+        }
+      : null,
 
-    userId:
-      order.userId
-        ? String(order.userId)
-        : null,
+    tableId: order.tableId || "",
 
-    customer:
-      order.customer || null,
+    items: Array.isArray(order.items)
+      ? order.items.map((item) => ({
+          productId: item.productId,
+          name: item.name,
+          image: item.image || "",
+          price: Number(item.price || 0),
+          quantity: Number(item.quantity || 0),
+          noodles: item.noodles || "",
+          spice: item.spice || "",
+          addons: Array.isArray(item.addons)
+            ? item.addons.map((addon) => ({
+                name: addon.name,
+                price: Number(addon.price || 0),
+              }))
+            : [],
+          total: Number(item.total || 0),
+        }))
+      : [],
 
-    tableId:
-      order.tableId,
+    subtotal: Number(order.subtotal || 0),
+    taxRate: Number(order.taxRate || 0),
+    taxAmount: Number(order.taxAmount || 0),
+    total: Number(order.total || 0),
 
-    items:
-      Array.isArray(order.items)
-        ? order.items
-        : [],
+    bill: order.bill
+      ? {
+          billNumber: order.bill.billNumber || null,
+          status: order.bill.status || "not_requested",
+          amount: Number(order.bill.amount || 0),
+          requestedAt: order.bill.requestedAt || null,
+          generatedAt: order.bill.generatedAt || null,
+          paidAt: order.bill.paidAt || null,
+        }
+      : null,
 
-    subtotal:
-      Number(
-        order.subtotal || 0
-      ),
+    payment: order.payment
+      ? {
+          status:
+            order.payment.status || "pending",
+          amount: Number(
+            order.payment.amount || 0
+          ),
+          method:
+            order.payment.method || null,
+          transactionId:
+            order.payment.transactionId || null,
+          paidAt:
+            order.payment.paidAt || null,
+        }
+      : null,
 
-    taxRate:
-      Number(
-        order.taxRate || 0
-      ),
+    receipt: order.receipt
+      ? {
+          sentAt: order.receipt.sentAt || null,
+        }
+      : null,
 
-    taxAmount:
-      Number(
-        order.taxAmount || 0
-      ),
-
-    total:
-      Number(
-        order.total || 0
-      ),
-
-    status:
-      order.status,
-
-    paymentStatus:
-      order.paymentStatus,
-
-    paymentMethod:
-      order.paymentMethod ||
-      null,
+    status: order.status,
 
     estimatedPreparationMinutes:
-      order.estimatedPreparationMinutes ??
-      null,
+      Number(
+        order.estimatedPreparationMinutes || 0
+      ),
 
     estimatedReadyAt:
-      order.estimatedReadyAt ||
-      null,
+      order.estimatedReadyAt || null,
 
     confirmedAt:
-      order.confirmedAt ||
-      null,
+      order.confirmedAt || null,
 
     preparingAt:
-      order.preparingAt ||
-      null,
+      order.preparingAt || null,
 
     readyAt:
-      order.readyAt ||
-      null,
+      order.readyAt || null,
 
     servedAt:
-      order.servedAt ||
-      null,
+      order.servedAt || null,
+
+    completedAt:
+      order.completedAt || null,
 
     cancelledAt:
-      order.cancelledAt ||
-      null,
+      order.cancelledAt || null,
 
     cancellationReason:
-      order.cancellationReason ||
-      "",
+      order.cancellationReason || "",
 
     createdAt:
-      order.createdAt,
+      order.createdAt || null,
 
     updatedAt:
-      order.updatedAt,
+      order.updatedAt || null,
   };
 }
 
@@ -214,305 +163,233 @@ function serializeOrder(order) {
 // GET /api/admin/orders
 // ============================================================
 
-export async function GET(
-  request
-) {
+export async function GET(request) {
   try {
-    // ========================================================
-    // 1. AUTHENTICATION
-    // ========================================================
+    // ----------------------------------------------------------
+    // AUTH
+    // ----------------------------------------------------------
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireUserAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
-    // ========================================================
-    // 2. ADMIN AUTHORIZATION
-    // ========================================================
+    // ----------------------------------------------------------
+    // QUERY
+    // ----------------------------------------------------------
 
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to access the admin orders.",
-        403
-      );
-    }
-
-    // ========================================================
-    // 3. DATABASE
-    // ========================================================
-
-    await connectDB();
-
-    // ========================================================
-    // 4. QUERY PARAMETERS
-    // ========================================================
-
-    const url =
+    const { searchParams } =
       new URL(request.url);
 
-    const searchParams =
-      url.searchParams;
+    const search = cleanText(
+      searchParams.get("search"),
+      100
+    );
 
-    const status =
-      normalizeText(
-        searchParams.get(
-          "status"
-        ) || "",
-        30
-      ).toLowerCase();
+    const status = cleanText(
+      searchParams.get("status"),
+      30
+    ).toLowerCase();
 
-    const tableId =
-      normalizeText(
-        searchParams.get(
-          "tableId"
-        ) || "",
-        30
-      ).toUpperCase();
+    const paymentStatus = cleanText(
+      searchParams.get("paymentStatus"),
+      30
+    ).toLowerCase();
 
-    const search =
-      normalizeText(
-        searchParams.get(
-          "search"
-        ) || "",
-        100
-      );
+    const pageValue = Number(
+      searchParams.get("page")
+    );
 
-    const pageValue =
-      Number(
-        searchParams.get(
-          "page"
-        ) || 1
-      );
-
-    const limitValue =
-      Number(
-        searchParams.get(
-          "limit"
-        ) ||
-          DEFAULT_LIMIT
-      );
+    const limitValue = Number(
+      searchParams.get("limit")
+    );
 
     const page =
-      Number.isFinite(
-        pageValue
-      ) &&
-      pageValue >= 1
-        ? Math.floor(
-            pageValue
-          )
+      Number.isInteger(pageValue) &&
+      pageValue > 0
+        ? pageValue
         : 1;
 
     const limit =
-      Number.isFinite(
-        limitValue
-      ) &&
-      limitValue >= 1
+      Number.isInteger(limitValue) &&
+      limitValue > 0
         ? Math.min(
-            Math.floor(
-              limitValue
-            ),
+            limitValue,
             MAX_LIMIT
           )
         : DEFAULT_LIMIT;
 
-    // ========================================================
-    // 5. VALIDATE STATUS
-    // ========================================================
-
-    if (
-      status &&
-      !ALLOWED_STATUSES.includes(
-        status
-      )
-    ) {
-      return errorResponse(
-        `Invalid order status. Allowed values: ${ALLOWED_STATUSES.join(
-          ", "
-        )}.`,
-        400
-      );
-    }
-
-    // ========================================================
-    // 6. BUILD FILTER
-    // ========================================================
+    // ----------------------------------------------------------
+    // FILTER
+    // ----------------------------------------------------------
 
     const filter = {};
 
-    if (status) {
-      filter.status =
-        status;
+    if (
+      status &&
+      ALLOWED_STATUSES.includes(status)
+    ) {
+      filter.status = status;
     }
 
-    if (tableId) {
-      filter.tableId =
-        tableId;
+    if (
+      paymentStatus &&
+      ALLOWED_PAYMENT_STATUSES.includes(
+        paymentStatus
+      )
+    ) {
+      filter["payment.status"] =
+        paymentStatus;
     }
-
-    /*
-     * Search:
-     *
-     * - order number
-     * - customer name
-     * - customer email
-     * - customer phone
-     */
 
     if (search) {
-      const escapedSearch =
-        search.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
-
-      const searchRegex =
-        new RegExp(
-          escapedSearch,
-          "i"
-        );
+      const regex = new RegExp(
+        escapeRegex(search),
+        "i"
+      );
 
       filter.$or = [
         {
-          orderNumber:
-            searchRegex,
+          orderNumber: regex,
         },
         {
-          "customer.name":
-            searchRegex,
+          tableId: regex,
         },
         {
-          "customer.email":
-            searchRegex,
+          "customer.name": regex,
         },
         {
-          "customer.phone":
-            searchRegex,
+          "customer.email": regex,
+        },
+        {
+          "customer.phone": regex,
+        },
+        {
+          "payment.transactionId": regex,
         },
       ];
     }
 
-    // ========================================================
-    // 7. PAGINATION
-    // ========================================================
+    // ----------------------------------------------------------
+    // DATABASE
+    // ----------------------------------------------------------
 
-    const skip =
-      (page - 1) *
-      limit;
+    await connectDB();
 
-    // ========================================================
-    // 8. FETCH ORDERS
-    // ========================================================
+    // ----------------------------------------------------------
+    // COUNTS
+    // ----------------------------------------------------------
 
     const [
-      orders,
-      totalOrders,
-    ] =
-      await Promise.all([
-        Order.find(filter)
-          .sort({
-            createdAt: -1,
-          })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
+      pending,
+      confirmed,
+      preparing,
+      ready,
+      served,
+      completed,
+      cancelled,
+    ] = await Promise.all([
+      Order.countDocuments({
+        ...filter,
+        status: "pending",
+      }),
 
-        Order.countDocuments(
-          filter
-        ),
-      ]);
+      Order.countDocuments({
+        ...filter,
+        status: "confirmed",
+      }),
 
-    // ========================================================
-    // 9. SERIALIZE
-    // ========================================================
+      Order.countDocuments({
+        ...filter,
+        status: "preparing",
+      }),
 
-    const serializedOrders =
-      orders.map(
-        serializeOrder
-      );
+      Order.countDocuments({
+        ...filter,
+        status: "ready",
+      }),
 
-    // ========================================================
-    // 10. PAGINATION
-    // ========================================================
+      Order.countDocuments({
+        ...filter,
+        status: "served",
+      }),
+
+      Order.countDocuments({
+        ...filter,
+        status: "completed",
+      }),
+
+      Order.countDocuments({
+        ...filter,
+        status: "cancelled",
+      }),
+    ]);
+
+    // ----------------------------------------------------------
+    // TOTAL
+    // ----------------------------------------------------------
+
+    const total =
+      await Order.countDocuments(filter);
 
     const totalPages =
-      totalOrders > 0
-        ? Math.ceil(
-            totalOrders /
-              limit
-          )
-        : 0;
+      Math.max(
+        1,
+        Math.ceil(total / limit)
+      );
 
-    // ========================================================
-    // 11. STATUS COUNTS
-    // ========================================================
+    const safePage = Math.min(
+      page,
+      totalPages
+    );
 
-    const statusCounts =
-      await Order.aggregate([
-        {
-          $group: {
-            _id:
-              "$status",
+    const skip =
+      (safePage - 1) * limit;
 
-            count: {
-              $sum: 1,
-            },
-          },
-        },
-      ]);
+    // ----------------------------------------------------------
+    // ORDERS
+    // ----------------------------------------------------------
 
-    const counts = {
-      pending: 0,
-      confirmed: 0,
-      preparing: 0,
-      ready: 0,
-      served: 0,
-      cancelled: 0,
-    };
+    const orders =
+      await Order.find(filter)
+        .sort({
+          createdAt: -1,
+        })
+        .skip(skip)
+        .limit(limit)
+        .lean();
 
-    for (
-      const item of statusCounts
-    ) {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          counts,
-          item._id
-        )
-      ) {
-        counts[item._id] =
-          item.count;
-      }
-    }
+    // ----------------------------------------------------------
+    // RESPONSE
+    // ----------------------------------------------------------
 
-    // ========================================================
-    // 12. RESPONSE
-    // ========================================================
+    return Response.json({
+      success: true,
 
-    return successResponse({
       orders:
-        serializedOrders,
+        orders.map(serializeOrder),
 
-      counts,
+      counts: {
+        pending,
+        confirmed,
+        preparing,
+        ready,
+        served,
+        completed,
+        cancelled,
+      },
 
       pagination: {
-        page,
+        page: safePage,
         limit,
-
-        totalOrders,
-
+        total,
         totalPages,
-
-        hasNextPage:
-          page <
-          totalPages,
-
         hasPreviousPage:
-          page > 1,
+          safePage > 1,
+        hasNextPage:
+          safePage < totalPages,
       },
     });
   } catch (error) {
@@ -521,35 +398,15 @@ export async function GET(
       error
     );
 
-    // ========================================================
-    // DATABASE ERROR
-    // ========================================================
-
-    if (
-      error?.name ===
-        "MongoServerSelectionError" ||
-      error?.name ===
-        "MongoNetworkError" ||
-      error?.code ===
-        "ECONNREFUSED" ||
-      error?.code ===
-        "ETIMEDOUT" ||
-      error?.code ===
-        "ENOTFOUND"
-    ) {
-      return errorResponse(
-        "Database is temporarily unavailable.",
-        503
-      );
-    }
-
-    // ========================================================
-    // FALLBACK
-    // ========================================================
-
-    return errorResponse(
-      "Unable to load admin orders.",
-      500
+    return Response.json(
+      {
+        success: false,
+        error:
+          "Unable to load orders.",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }
