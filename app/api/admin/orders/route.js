@@ -1,7 +1,9 @@
 import { connectDB } from "@/lib/mongodb";
 import Order from "@/models/Order";
 
-import {requireUserAccess,} from "@/lib/admin-auth";
+import {
+  requireDashboardAccess,
+} from "@/lib/admin-auth";
 
 // ============================================================
 // CONSTANTS
