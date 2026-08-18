@@ -1,32 +1,78 @@
 import { connectDB } from "@/lib/mongodb";
 import Product from "@/models/Product";
 
+import {
+  requireProductAccess,
+} from "@/lib/admin-auth";
+
+// ============================================================
+// HELPERS
+// ============================================================
+
 function slugify(value) {
-  return String(value || "")
+  return String(
+    value || ""
+  )
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(
+      /[^a-z0-9]+/g,
+      "-"
+    )
+    .replace(
+      /^-+|-+$/g,
+      "");
 }
 
-function normalizeAddOns(addOns) {
-  if (!Array.isArray(addOns)) {
+function normalizeAddOns(
+  addOns
+) {
+  if (
+    !Array.isArray(
+      addOns
+    )
+  ) {
     return [];
   }
 
   return addOns
-    .map((item) => ({
-      name: String(item.name || "").trim(),
-      price: Number(item.price) || 0,
-      isAvailable:
-        item.isAvailable !== false,
-    }))
-    .filter((item) => item.name);
+    .map((item) => {
+      const price =
+        Number(
+          item?.price
+        );
+
+      return {
+        name: String(
+          item?.name || ""
+        )
+          .trim()
+          .slice(0, 100),
+
+        price,
+
+        isAvailable:
+          item?.isAvailable !==
+          false,
+      };
+    })
+    .filter(
+      (item) =>
+        item.name &&
+        Number.isFinite(
+          item.price
+        ) &&
+        item.price >= 0
+    );
 }
 
-function normalizeProduct(body) {
+function normalizeProduct(
+  body
+) {
   return {
-    name: String(body.name || "").trim(),
+    name: String(
+      body.name || ""
+    ).trim(),
 
     description: String(
       body.description || ""
@@ -36,38 +82,48 @@ function normalizeProduct(body) {
       body.category || ""
     ).trim(),
 
-    price: Number(body.price),
+    price:
+      Number(body.price),
 
     image: String(
       body.image || ""
     ).trim(),
 
     foodType:
-      body.foodType === "non-veg"
+      body.foodType ===
+      "non-veg"
         ? "non-veg"
         : "veg",
 
     isAvailable:
-      body.isAvailable !== false,
+      body.isAvailable !==
+      false,
 
     isPopular:
-      body.isPopular === true,
+      body.isPopular ===
+      true,
 
     isFeatured:
-      body.isFeatured === true,
+      body.isFeatured ===
+      true,
 
-    addOns: normalizeAddOns(
-      body.addOns
-    ),
+    addOns:
+      normalizeAddOns(
+        body.addOns
+      ),
 
     customization: {
       noodles:
         Array.isArray(
-          body.customization?.noodles
+          body.customization
+            ?.noodles
         )
           ? body.customization.noodles
-              .map((item) =>
-                String(item).trim()
+              .map(
+                (item) =>
+                  String(
+                    item
+                  ).trim()
               )
               .filter(Boolean)
           : [],
@@ -78,26 +134,32 @@ function normalizeProduct(body) {
             ?.spiceLevels
         )
           ? body.customization.spiceLevels
-              .map((item) =>
-                String(item).trim()
+              .map(
+                (item) =>
+                  String(
+                    item
+                  ).trim()
               )
               .filter(Boolean)
           : [],
     },
 
     sortOrder:
-      Number(body.sortOrder) || 0,
+      Number(
+        body.sortOrder
+      ) || 0,
 
     metaTitle: String(
       body.metaTitle || ""
     ).trim(),
 
-    metaDescription: String(
-      body.metaDescription || ""
-    ).trim(),
+    metaDescription:
+      String(
+        body.metaDescription ||
+          ""
+      ).trim(),
   };
 }
-
 
 // ============================================================
 // GET PRODUCTS
@@ -105,6 +167,13 @@ function normalizeProduct(body) {
 
 export async function GET() {
   try {
+    const auth =
+      await requireProductAccess();
+
+    if (auth.response) {
+      return auth.response;
+    }
+
     await connectDB();
 
     const products =
@@ -121,7 +190,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error(
-      "GET PRODUCTS ERROR:",
+      "GET ADMIN PRODUCTS ERROR:",
       error
     );
 
@@ -138,20 +207,45 @@ export async function GET() {
   }
 }
 
-
 // ============================================================
 // CREATE PRODUCT
 // ============================================================
 
-export async function POST(request) {
+export async function POST(
+  request
+) {
   try {
+    const auth =
+      await requireProductAccess();
+
+    if (auth.response) {
+      return auth.response;
+    }
+
     await connectDB();
 
-    const body =
-      await request.json();
+    let body;
+
+    try {
+      body =
+        await request.json();
+    } catch {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Invalid request body.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const product =
-      normalizeProduct(body);
+      normalizeProduct(
+        body
+      );
 
     if (!product.name) {
       return Response.json(
@@ -160,7 +254,9 @@ export async function POST(request) {
           error:
             "Product name is required.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -171,7 +267,9 @@ export async function POST(request) {
           error:
             "Product category is required.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -187,14 +285,37 @@ export async function POST(request) {
           error:
             "Valid product price is required.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
-    const baseSlug =
-      slugify(product.name);
+    // --------------------------------------------------------
+    // SLUG
+    // --------------------------------------------------------
 
-    let slug = baseSlug;
+    const baseSlug =
+      slugify(
+        product.name
+      );
+
+    if (!baseSlug) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Product name cannot generate a valid slug.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    let slug =
+      baseSlug;
+
     let counter = 1;
 
     while (
@@ -208,6 +329,10 @@ export async function POST(request) {
       counter++;
     }
 
+    // --------------------------------------------------------
+    // CREATE
+    // --------------------------------------------------------
+
     const created =
       await Product.create({
         ...product,
@@ -217,7 +342,8 @@ export async function POST(request) {
     return Response.json(
       {
         success: true,
-        product: created,
+        product:
+          created,
       },
       {
         status: 201,
@@ -225,9 +351,25 @@ export async function POST(request) {
     );
   } catch (error) {
     console.error(
-      "CREATE PRODUCT ERROR:",
+      "CREATE ADMIN PRODUCT ERROR:",
       error
     );
+
+    if (
+      error?.code ===
+      11000
+    ) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "A product with this information already exists.",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
 
     return Response.json(
       {

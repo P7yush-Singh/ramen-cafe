@@ -3,9 +3,11 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
 } from "react";
+
+import Image from "next/image";
+import Link from "next/link";
 
 import {
   AlertCircle,
@@ -13,7 +15,6 @@ import {
   ChevronRight,
   Clock3,
   Loader2,
-  LogOut,
   MapPin,
   Package,
   RefreshCw,
@@ -21,10 +22,9 @@ import {
   Utensils,
   X,
 } from "lucide-react";
-import Image from "next/image";
 
 // ============================================================
-// STATUS CONFIG
+// CONFIG
 // ============================================================
 
 const STATUS_CONFIG = {
@@ -58,16 +58,18 @@ const STATUS_CONFIG = {
       "bg-gray-100 text-gray-700",
   },
 
+  completed: {
+    label: "Completed",
+    className:
+      "bg-emerald-50 text-emerald-700",
+  },
+
   cancelled: {
     label: "Cancelled",
     className:
       "bg-red-50 text-red-700",
   },
 };
-
-// ============================================================
-// NEXT ACTIONS
-// ============================================================
 
 const NEXT_ACTIONS = {
   pending: {
@@ -90,7 +92,12 @@ const NEXT_ACTIONS = {
     status: "served",
   },
 
-  served: null,
+  served: {
+    label: "Complete",
+    status: "completed",
+  },
+
+  completed: null,
 
   cancelled: null,
 };
@@ -108,9 +115,7 @@ function formatPrice(value) {
 }
 
 function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
+  if (!value) return "—";
 
   try {
     return new Date(
@@ -118,6 +123,7 @@ function formatDate(value) {
     ).toLocaleString("en-IN", {
       day: "numeric",
       month: "short",
+      year: "numeric",
       hour: "numeric",
       minute: "2-digit",
     });
@@ -138,10 +144,6 @@ function getStatusConfig(status) {
 // ============================================================
 
 export default function AdminOrdersPage() {
-  // ==========================================================
-  // STATE
-  // ==========================================================
-
   const [orders, setOrders] =
     useState([]);
 
@@ -152,19 +154,17 @@ export default function AdminOrdersPage() {
       preparing: 0,
       ready: 0,
       served: 0,
+      completed: 0,
       cancelled: 0,
     });
 
-  const [isLoading, setIsLoading] =
-    useState(true);
-
-  const [isRefreshing, setIsRefreshing] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
+  const [pagination, setPagination] =
+    useState(null);
 
   const [statusFilter, setStatusFilter] =
+    useState("");
+
+  const [paymentFilter, setPaymentFilter] =
     useState("");
 
   const [search, setSearch] =
@@ -173,23 +173,26 @@ export default function AdminOrdersPage() {
   const [page, setPage] =
     useState(1);
 
-  const [pagination, setPagination] =
-    useState(null);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
 
   const [updatingOrder, setUpdatingOrder] =
     useState(null);
 
-  const [selectedOrder, setSelectedOrder] =
+  const [cancelOrder, setCancelOrder] =
     useState(null);
 
-  const [cancellationReason, setCancellationReason] =
+  const [cancelReason, setCancelReason] =
     useState("");
 
-  const [showCancelModal, setShowCancelModal] =
-    useState(false);
-
   // ==========================================================
-  // LOAD ORDERS
+  // LOAD
   // ==========================================================
 
   const loadOrders = useCallback(
@@ -198,15 +201,22 @@ export default function AdminOrdersPage() {
     } = {}) => {
       try {
         if (silent) {
-          setIsRefreshing(true);
+          setRefreshing(true);
         } else {
-          setIsLoading(true);
+          setLoading(true);
         }
 
         setError("");
 
         const params =
           new URLSearchParams();
+
+        if (search.trim()) {
+          params.set(
+            "search",
+            search.trim()
+          );
+        }
 
         if (statusFilter) {
           params.set(
@@ -215,10 +225,10 @@ export default function AdminOrdersPage() {
           );
         }
 
-        if (search.trim()) {
+        if (paymentFilter) {
           params.set(
-            "search",
-            search.trim()
+            "paymentStatus",
+            paymentFilter
           );
         }
 
@@ -237,8 +247,7 @@ export default function AdminOrdersPage() {
             `/api/admin/orders?${params.toString()}`,
             {
               method: "GET",
-              credentials:
-                "include",
+              credentials: "include",
               cache: "no-store",
             }
           );
@@ -262,45 +271,35 @@ export default function AdminOrdersPage() {
         );
 
         setCounts(
-          data.counts || {
-            pending: 0,
-            confirmed: 0,
-            preparing: 0,
-            ready: 0,
-            served: 0,
-            cancelled: 0,
-          }
+          data.counts || {}
         );
 
         setPagination(
           data.pagination ||
             null
         );
-      } catch (error) {
+      } catch (err) {
         console.error(
           "Admin orders error:",
-          error
+          err
         );
 
         setError(
-          error.message ||
+          err?.message ||
             "Unable to load orders."
         );
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        setLoading(false);
+        setRefreshing(false);
       }
     },
     [
       page,
       search,
       statusFilter,
+      paymentFilter,
     ]
   );
-
-  // ==========================================================
-  // INITIAL / FILTER LOAD
-  // ==========================================================
 
   useEffect(() => {
     loadOrders();
@@ -325,40 +324,17 @@ export default function AdminOrdersPage() {
   }, [loadOrders]);
 
   // ==========================================================
-  // STATUS FILTER
+  // UPDATE STATUS
   // ==========================================================
 
-  function handleStatusFilter(
-    value
-  ) {
-    setStatusFilter(value);
-    setPage(1);
-  }
-
-  // ==========================================================
-  // SEARCH
-  // ==========================================================
-
-  function handleSearch(
-    event
-  ) {
-    setSearch(
-      event.target.value
-    );
-
-    setPage(1);
-  }
-
-  // ==========================================================
-  // UPDATE ORDER STATUS
-  // ==========================================================
-
-  async function updateOrderStatus(
+  async function updateStatus(
     order,
-    nextStatus,
-    reason = ""
+    status,
+    cancellationReason = ""
   ) {
-    if (!order?.orderNumber) {
+    if (
+      !order?.orderNumber
+    ) {
       return;
     }
 
@@ -374,21 +350,16 @@ export default function AdminOrdersPage() {
           )}`,
           {
             method: "PATCH",
+            credentials: "include",
 
             headers: {
               "Content-Type":
                 "application/json",
             },
 
-            credentials:
-              "include",
-
             body: JSON.stringify({
-              status:
-                nextStatus,
-
-              cancellationReason:
-                reason,
+              status,
+              cancellationReason,
             }),
           }
         );
@@ -403,86 +374,50 @@ export default function AdminOrdersPage() {
         );
       }
 
-      // Update selected order
-      setSelectedOrder(
-        data.order
-      );
+      setCancelOrder(null);
+      setCancelReason("");
 
-      // Close cancellation UI
-      setShowCancelModal(
-        false
-      );
-
-      setCancellationReason(
-        ""
-      );
-
-      // Reload current list
       await loadOrders({
         silent: true,
       });
-    } catch (error) {
+    } catch (err) {
       console.error(
-        "Update order error:",
-        error
+        "Order status update error:",
+        err
       );
 
       alert(
-        error.message ||
+        err?.message ||
           "Unable to update order."
       );
     } finally {
-      setUpdatingOrder(
-        null
-      );
+      setUpdatingOrder(null);
     }
   }
 
-  // ==========================================================
-  // ACTION BUTTON
-  // ==========================================================
-
-  function handlePrimaryAction(
-    order
-  ) {
+  function handleAction(order) {
     const action =
       NEXT_ACTIONS[
         order.status
       ];
 
-    if (!action) {
-      return;
-    }
+    if (!action) return;
 
-    updateOrderStatus(
+    updateStatus(
       order,
       action.status
     );
   }
 
-  // ==========================================================
-  // CANCEL
-  // ==========================================================
-
-  function openCancelModal(
-    order
-  ) {
-    setSelectedOrder(
-      order
-    );
-
-    setCancellationReason(
-      ""
-    );
-
-    setShowCancelModal(
-      true
-    );
-  }
-
-  function confirmCancellation() {
+  function handleCancel() {
     if (
-      !cancellationReason.trim()
+      !cancelOrder
+    ) {
+      return;
+    }
+
+    if (
+      !cancelReason.trim()
     ) {
       alert(
         "Please enter a cancellation reason."
@@ -491,34 +426,33 @@ export default function AdminOrdersPage() {
       return;
     }
 
-    updateOrderStatus(
-      selectedOrder,
+    updateStatus(
+      cancelOrder,
       "cancelled",
-      cancellationReason.trim()
+      cancelReason.trim()
     );
   }
 
   // ==========================================================
-  // STATISTICS
+  // STATS
   // ==========================================================
 
   const activeOrders =
-    useMemo(() => {
-      return (
-        Number(
-          counts.pending || 0
-        ) +
-        Number(
-          counts.confirmed || 0
-        ) +
-        Number(
-          counts.preparing || 0
-        ) +
-        Number(
-          counts.ready || 0
-        )
-      );
-    }, [counts]);
+    Number(
+      counts.pending || 0
+    ) +
+    Number(
+      counts.confirmed || 0
+    ) +
+    Number(
+      counts.preparing || 0
+    ) +
+    Number(
+      counts.ready || 0
+    ) +
+    Number(
+      counts.served || 0
+    );
 
   // ==========================================================
   // RENDER
@@ -526,16 +460,17 @@ export default function AdminOrdersPage() {
 
   return (
     <main className="min-h-screen bg-[#F5F0E8] text-[#171513]">
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
+      {/* HEADER */}
 
       <header className="sticky top-0 z-40 border-b border-[#E5DED2] bg-[#F5F0E8]/95 backdrop-blur">
         <div className="mx-auto flex h-20 max-w-[1500px] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full ">
-              <Image src="/logo.png" alt="Ramen Cafe Logo" width={50} height={50} />
-            </div>
+            <Image
+              src="/logo.png"
+              alt="Ramen Cafe"
+              width={50}
+              height={50}
+            />
 
             <div>
               <p className="text-sm font-semibold tracking-[0.15em]">
@@ -548,52 +483,32 @@ export default function AdminOrdersPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() =>
-                loadOrders({
-                  silent: true,
-                })
+          <button
+            onClick={() =>
+              loadOrders({
+                silent: true,
+              })
+            }
+            disabled={refreshing}
+            className="flex h-10 items-center gap-2 rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-xs font-semibold disabled:opacity-50"
+          >
+            <RefreshCw
+              size={15}
+              className={
+                refreshing
+                  ? "animate-spin"
+                  : ""
               }
-              disabled={
-                isRefreshing
-              }
-              className="flex h-10 items-center gap-2 rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-xs font-semibold transition hover:bg-white disabled:opacity-50"
-            >
-              <RefreshCw
-                size={15}
-                className={
-                  isRefreshing
-                    ? "animate-spin"
-                    : ""
-                }
-              />
+            />
 
-              Refresh
-            </button>
-
-            <button
-              className="flex h-10 items-center gap-2 rounded-xl bg-[#171513] px-4 text-xs font-semibold text-white transition hover:bg-[#B83A2E]"
-            >
-              <LogOut
-                size={15}
-              />
-
-              Logout
-            </button>
-          </div>
+            Refresh
+          </button>
         </div>
       </header>
 
-      {/* ======================================================
-          BODY
-      ====================================================== */}
+      {/* CONTENT */}
 
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        {/* ====================================================
-            PAGE TITLE
-        ==================================================== */}
-
+      <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
         <div className="mb-7">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E]">
             Restaurant Operations
@@ -604,107 +519,152 @@ export default function AdminOrdersPage() {
           </h1>
 
           <p className="mt-2 text-sm text-[#6B6258]">
-            Manage incoming orders and
-            control the kitchen workflow.
+            Manage orders, kitchen
+            workflow and payments.
           </p>
         </div>
 
-        {/* ====================================================
-            STAT CARDS
-        ==================================================== */}
+        {/* STATS */}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <StatCard
             label="Pending"
             value={counts.pending}
-            icon={
-              <Clock3 size={18} />
-            }
+            icon={<Clock3 size={18} />}
             active={
               statusFilter ===
               "pending"
             }
-            onClick={() =>
-              handleStatusFilter(
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
                 statusFilter ===
                   "pending"
                   ? ""
                   : "pending"
-              )
-            }
+              );
+            }}
           />
 
           <StatCard
             label="Confirmed"
             value={counts.confirmed}
-            icon={
-              <Check size={18} />
-            }
+            icon={<Check size={18} />}
             active={
               statusFilter ===
               "confirmed"
             }
-            onClick={() =>
-              handleStatusFilter(
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
                 statusFilter ===
                   "confirmed"
                   ? ""
                   : "confirmed"
-              )
-            }
+              );
+            }}
           />
 
           <StatCard
             label="Preparing"
             value={counts.preparing}
-            icon={
-              <Utensils
-                size={18}
-              />
-            }
+            icon={<Utensils size={18} />}
             active={
               statusFilter ===
               "preparing"
             }
-            onClick={() =>
-              handleStatusFilter(
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
                 statusFilter ===
                   "preparing"
                   ? ""
                   : "preparing"
-              )
-            }
+              );
+            }}
           />
 
           <StatCard
             label="Ready"
             value={counts.ready}
-            icon={
-              <Package
-                size={18}
-              />
-            }
+            icon={<Package size={18} />}
             active={
               statusFilter ===
               "ready"
             }
-            onClick={() =>
-              handleStatusFilter(
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
                 statusFilter ===
                   "ready"
                   ? ""
                   : "ready"
-              )
+              );
+            }}
+          />
+
+          <StatCard
+            label="Served"
+            value={counts.served}
+            icon={<Check size={18} />}
+            active={
+              statusFilter ===
+              "served"
             }
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
+                statusFilter ===
+                  "served"
+                  ? ""
+                  : "served"
+              );
+            }}
+          />
+
+          <StatCard
+            label="Completed"
+            value={counts.completed}
+            icon={<Check size={18} />}
+            active={
+              statusFilter ===
+              "completed"
+            }
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
+                statusFilter ===
+                  "completed"
+                  ? ""
+                  : "completed"
+              );
+            }}
+          />
+
+          <StatCard
+            label="Cancelled"
+            value={counts.cancelled}
+            icon={<X size={18} />}
+            active={
+              statusFilter ===
+              "cancelled"
+            }
+            onClick={() => {
+              setPage(1);
+              setStatusFilter(
+                statusFilter ===
+                  "cancelled"
+                  ? ""
+                  : "cancelled"
+              );
+            }}
           />
         </div>
 
-        {/* ====================================================
-            TOOLBAR
-        ==================================================== */}
+        {/* TOOLBAR */}
 
         <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-md">
+          <div className="relative w-full lg:max-w-xl">
             <Search
               size={17}
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8A8177]"
@@ -712,26 +672,27 @@ export default function AdminOrdersPage() {
 
             <input
               value={search}
-              onChange={
-                handleSearch
-              }
-              placeholder="Search order, customer, phone..."
-              className="h-12 w-full rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] pl-11 pr-4 text-sm outline-none transition focus:border-[#B83A2E]"
+              onChange={(event) => {
+                setSearch(
+                  event.target.value
+                );
+                setPage(1);
+              }}
+              placeholder="Search order, customer, phone, table..."
+              className="h-12 w-full rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] pl-11 pr-4 text-sm outline-none focus:border-[#B83A2E]"
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex gap-3">
             <select
-              value={
-                statusFilter
-              }
-              onChange={(event) =>
-                handleStatusFilter(
-                  event.target
-                    .value
-                )
-              }
-              className="h-12 rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-sm font-medium outline-none"
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(
+                  event.target.value
+                );
+                setPage(1);
+              }}
+              className="h-12 rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-sm outline-none"
             >
               <option value="">
                 All Status
@@ -748,29 +709,49 @@ export default function AdminOrdersPage() {
                     key={value}
                     value={value}
                   >
-                    {
-                      config.label
-                    }
+                    {config.label}
                   </option>
                 )
               )}
             </select>
 
-            <div className="hidden rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] px-4 py-3 text-xs text-[#6B6258] sm:block">
-              <span className="font-semibold text-[#171513]">
-                {activeOrders}
-              </span>{" "}
-              active orders
-            </div>
+            <select
+              value={paymentFilter}
+              onChange={(event) => {
+                setPaymentFilter(
+                  event.target.value
+                );
+                setPage(1);
+              }}
+              className="h-12 rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-sm outline-none"
+            >
+              <option value="">
+                All Payments
+              </option>
+
+              <option value="pending">
+                Payment Pending
+              </option>
+
+              <option value="paid">
+                Paid
+              </option>
+
+              <option value="failed">
+                Failed
+              </option>
+
+              <option value="refunded">
+                Refunded
+              </option>
+            </select>
           </div>
         </div>
 
-        {/* ====================================================
-            ERROR
-        ==================================================== */}
+        {/* ERROR */}
 
         {error && (
-          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-100 bg-red-50 p-5">
+          <div className="mt-6 flex gap-3 rounded-2xl border border-red-100 bg-red-50 p-5">
             <AlertCircle
               size={18}
               className="mt-0.5 text-red-600"
@@ -797,29 +778,24 @@ export default function AdminOrdersPage() {
           </div>
         )}
 
-        {/* ====================================================
-            LOADING
-        ==================================================== */}
+        {/* LOADING */}
 
-        {isLoading &&
-          !error && (
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              {[1, 2, 3, 4].map(
-                (item) => (
-                  <div
-                    key={item}
-                    className="h-52 animate-pulse rounded-3xl bg-[#FFFDF8]"
-                  />
-                )
-              )}
-            </div>
-          )}
+        {loading && (
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            {[1, 2, 3, 4].map(
+              (item) => (
+                <div
+                  key={item}
+                  className="h-56 animate-pulse rounded-3xl bg-[#FFFDF8]"
+                />
+              )
+            )}
+          </div>
+        )}
 
-        {/* ====================================================
-            EMPTY
-        ==================================================== */}
+        {/* EMPTY */}
 
-        {!isLoading &&
+        {!loading &&
           !error &&
           orders.length ===
             0 && (
@@ -833,17 +809,15 @@ export default function AdminOrdersPage() {
               </h2>
 
               <p className="mt-2 text-sm text-[#6B6258]">
-                There are no orders matching
-                the current filters.
+                No orders match the
+                current filters.
               </p>
             </div>
           )}
 
-        {/* ====================================================
-            ORDERS
-        ==================================================== */}
+        {/* ORDERS */}
 
-        {!isLoading &&
+        {!loading &&
           !error &&
           orders.length >
             0 && (
@@ -852,38 +826,34 @@ export default function AdminOrdersPage() {
                 (order) => (
                   <OrderCard
                     key={
-                      order.id ||
+                      order._id ||
                       order.orderNumber
                     }
                     order={order}
-                    isUpdating={
+                    updating={
                       updatingOrder ===
                       order.orderNumber
                     }
-                    onPrimaryAction={() =>
-                      handlePrimaryAction(
+                    onAction={() =>
+                      handleAction(
                         order
                       )
                     }
-                    onCancel={() =>
-                      openCancelModal(
+                    onCancel={() => {
+                      setCancelOrder(
                         order
-                      )
-                    }
-                    onView={() =>
-                      setSelectedOrder(
-                        order
-                      )
-                    }
+                      );
+                      setCancelReason(
+                        ""
+                      );
+                    }}
                   />
                 )
               )}
             </div>
           )}
 
-        {/* ====================================================
-            PAGINATION
-        ==================================================== */}
+        {/* PAGINATION */}
 
         {pagination &&
           pagination.totalPages >
@@ -891,15 +861,15 @@ export default function AdminOrdersPage() {
             <div className="mt-6 flex items-center justify-between rounded-2xl border border-[#DED6C9] bg-[#FFFDF8] p-4">
               <p className="text-xs text-[#6B6258]">
                 Page{" "}
-                <span className="font-semibold text-[#171513]">
+                <b className="text-[#171513]">
                   {pagination.page}
-                </span>{" "}
+                </b>{" "}
                 of{" "}
-                <span className="font-semibold text-[#171513]">
+                <b className="text-[#171513]">
                   {
                     pagination.totalPages
                   }
-                </span>
+                </b>
               </p>
 
               <div className="flex gap-2">
@@ -912,12 +882,11 @@ export default function AdminOrdersPage() {
                       (value) =>
                         Math.max(
                           1,
-                          value -
-                            1
+                          value - 1
                         )
                     )
                   }
-                  className="rounded-xl border border-[#DED6C9] px-4 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-[#DED6C9] px-4 py-2 text-xs font-semibold disabled:opacity-40"
                 >
                   Previous
                 </button>
@@ -929,11 +898,10 @@ export default function AdminOrdersPage() {
                   onClick={() =>
                     setPage(
                       (value) =>
-                        value +
-                        1
+                        value + 1
                     )
                   }
-                  className="rounded-xl bg-[#171513] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-[#171513] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
                 >
                   Next
                 </button>
@@ -942,72 +910,70 @@ export default function AdminOrdersPage() {
           )}
       </div>
 
-      {/* ======================================================
-          ORDER DETAIL MODAL
-      ====================================================== */}
+      {/* CANCEL MODAL */}
 
-      {selectedOrder &&
-        !showCancelModal && (
-          <OrderDetailModal
-            order={
-              selectedOrder
-            }
-            isUpdating={
-              updatingOrder ===
-              selectedOrder.orderNumber
-            }
-            onClose={() =>
-              setSelectedOrder(
-                null
-              )
-            }
-            onPrimaryAction={() =>
-              handlePrimaryAction(
-                selectedOrder
-              )
-            }
-            onCancel={() =>
-              openCancelModal(
-                selectedOrder
-              )
-            }
-          />
-        )}
+      {cancelOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-3xl bg-[#FFFDF8] p-6">
+            <h2 className="text-xl font-semibold">
+              Cancel Order
+            </h2>
 
-      {/* ======================================================
-          CANCEL MODAL
-      ====================================================== */}
+            <p className="mt-2 text-sm text-[#6B6258]">
+              Order #
+              {
+                cancelOrder.orderNumber
+              }
+            </p>
 
-      {showCancelModal &&
-        selectedOrder && (
-          <CancelModal
-            order={
-              selectedOrder
-            }
-            reason={
-              cancellationReason
-            }
-            setReason={
-              setCancellationReason
-            }
-            isUpdating={
-              updatingOrder ===
-              selectedOrder.orderNumber
-            }
-            onClose={() => {
-              setShowCancelModal(
-                false
-              );
+            <textarea
+              value={cancelReason}
+              onChange={(event) =>
+                setCancelReason(
+                  event.target.value
+                )
+              }
+              placeholder="Enter cancellation reason..."
+              rows={4}
+              className="mt-5 w-full rounded-2xl border border-[#DED6C9] bg-white p-4 text-sm outline-none focus:border-[#B83A2E]"
+            />
 
-              setCancellationReason(
-                ""
-              );
-            }}
-            onConfirm={
-              confirmCancellation
-            }
-          />
-        )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() =>
+                  setCancelOrder(
+                    null
+                  )
+                }
+                className="rounded-xl border border-[#DED6C9] px-4 py-2.5 text-xs font-semibold"
+              >
+                Close
+              </button>
+
+              <button
+                onClick={
+                  handleCancel
+                }
+                disabled={
+                  updatingOrder ===
+                  cancelOrder.orderNumber
+                }
+                className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {updatingOrder ===
+                cancelOrder.orderNumber ? (
+                  <Loader2
+                    size={14}
+                    className="animate-spin"
+                  />
+                ) : null}
+
+                Cancel Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -1029,7 +995,7 @@ function StatCard({
       className={`rounded-3xl border p-5 text-left transition ${
         active
           ? "border-[#B83A2E] bg-[#FFFDF8] shadow-sm"
-          : "border-[#E5DED2] bg-[#FFFDF8] hover:-translate-y-0.5 hover:shadow-sm"
+          : "border-[#E5DED2] bg-[#FFFDF8] hover:shadow-sm"
       }`}
     >
       <div className="flex items-center justify-between">
@@ -1043,12 +1009,12 @@ function StatCard({
         />
       </div>
 
-      <p className="mt-5 text-xs font-medium text-[#6B6258]">
+      <p className="mt-5 text-xs text-[#6B6258]">
         {label}
       </p>
 
-      <p className="mt-1 text-3xl font-semibold tracking-[-0.04em]">
-        {value}
+      <p className="mt-1 text-3xl font-semibold">
+        {value || 0}
       </p>
     </button>
   );
@@ -1060,10 +1026,9 @@ function StatCard({
 
 function OrderCard({
   order,
-  isUpdating,
-  onPrimaryAction,
+  updating,
+  onAction,
   onCancel,
-  onView,
 }) {
   const status =
     getStatusConfig(
@@ -1076,25 +1041,23 @@ function OrderCard({
     ];
 
   const totalItems =
-    Array.isArray(
-      order.items
-    )
+    Array.isArray(order.items)
       ? order.items.reduce(
-          (
-            total,
-            item
-          ) =>
-            total +
+          (sum, item) =>
+            sum +
             Number(
-              item.quantity ||
-                0
+              item.quantity || 0
             ),
           0
         )
       : 0;
 
+  const paymentPaid =
+    order.payment?.status ===
+    "paid";
+
   return (
-    <article className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)] sm:p-6">
+    <article className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 shadow-sm sm:p-6">
       {/* TOP */}
 
       <div className="flex items-start justify-between gap-4">
@@ -1104,10 +1067,7 @@ function OrderCard({
           </p>
 
           <h2 className="mt-1 text-lg font-semibold">
-            #
-            {
-              order.orderNumber
-            }
+            #{order.orderNumber}
           </h2>
         </div>
 
@@ -1122,11 +1082,7 @@ function OrderCard({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <InfoItem
-          icon={
-            <MapPin
-              size={14}
-            />
-          }
+          icon={<MapPin size={14} />}
           label={`Table ${
             order.tableId ||
             "—"
@@ -1134,11 +1090,7 @@ function OrderCard({
         />
 
         <InfoItem
-          icon={
-            <Package
-              size={14}
-            />
-          }
+          icon={<Package size={14} />}
           label={`${totalItems} ${
             totalItems === 1
               ? "item"
@@ -1147,11 +1099,7 @@ function OrderCard({
         />
 
         <InfoItem
-          icon={
-            <Clock3
-              size={14}
-            />
-          }
+          icon={<Clock3 size={14} />}
           label={formatDate(
             order.createdAt
           )}
@@ -1166,27 +1114,44 @@ function OrderCard({
         </p>
 
         <p className="mt-1 text-sm font-semibold">
-          {
-            order.customer
-              ?.name ||
-            "Unknown Customer"
-          }
+          {order.customer?.name ||
+            "Unknown Customer"}
         </p>
 
         <p className="mt-1 text-xs text-[#6B6258]">
-          {
-            order.customer
-              ?.phone ||
-            "No phone"
-          }
+          {order.customer?.phone ||
+            order.customer?.email ||
+            "No contact"}
         </p>
       </div>
 
-      {/* FOOTER */}
+      {/* PAYMENT */}
 
-      <div className="mt-5 flex items-center justify-between gap-3">
+      <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#E5DED2] bg-white px-4 py-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-[#8A8177]">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-[#8A8177]">
+            Payment
+          </p>
+
+          <p
+            className={`mt-1 text-xs font-semibold ${
+              paymentPaid
+                ? "text-green-700"
+                : "text-amber-700"
+            }`}
+          >
+            {paymentPaid
+              ? `Paid${
+                  order.payment?.method
+                    ? ` · ${order.payment.method.toUpperCase()}`
+                    : ""
+                }`
+              : "Payment Pending"}
+          </p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-[#8A8177]">
             Total
           </p>
 
@@ -1196,66 +1161,56 @@ function OrderCard({
             )}
           </p>
         </div>
+      </div>
 
-        <div className="flex items-center gap-2">
+      {/* ACTIONS */}
+
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href={`/admin/orders/${encodeURIComponent(
+            order.orderNumber
+          )}`}
+          className="rounded-xl border border-[#DED6C9] px-4 py-2.5 text-xs font-semibold hover:bg-[#F5F0E8]"
+        >
+          View Details
+        </Link>
+
+        {action && (
           <button
-            onClick={
-              onView
-            }
-            className="rounded-xl border border-[#DED6C9] px-3 py-2.5 text-xs font-semibold transition hover:bg-[#F5F0E8]"
+            disabled={updating}
+            onClick={onAction}
+            className="flex items-center gap-2 rounded-xl bg-[#B83A2E] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#171513] disabled:opacity-50"
           >
-            View
-          </button>
-
-          {action && (
-            <button
-              disabled={
-                isUpdating
-              }
-              onClick={
-                onPrimaryAction
-              }
-              className="flex items-center gap-2 rounded-xl bg-[#B83A2E] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#171513] disabled:opacity-50"
-            >
-              {isUpdating ? (
-                <Loader2
-                  size={14}
-                  className="animate-spin"
-                />
-              ) : (
-                <Check
-                  size={14}
-                />
-              )}
-
-              {
-                action.label
-              }
-            </button>
-          )}
-
-          {(order.status ===
-            "pending" ||
-            order.status ===
-              "confirmed" ||
-            order.status ===
-              "preparing") && (
-            <button
-              disabled={
-                isUpdating
-              }
-              onClick={
-                onCancel
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-red-100 text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-              title="Cancel order"
-            >
-              <X
-                size={15}
+            {updating ? (
+              <Loader2
+                size={14}
+                className="animate-spin"
               />
-            </button>
-          )}
-        </div>
+            ) : (
+              <Check
+                size={14}
+              />
+            )}
+
+            {action.label}
+          </button>
+        )}
+
+        {[
+          "pending",
+          "confirmed",
+          "preparing",
+        ].includes(
+          order.status
+        ) && (
+          <button
+            disabled={updating}
+            onClick={onCancel}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-red-100 text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
     </article>
   );
@@ -1271,460 +1226,11 @@ function InfoItem({
 }) {
   return (
     <div className="flex items-center gap-2 text-xs text-[#6B6258]">
-      {icon}
-
-      <span>
-        {label}
+      <span className="text-[#B83A2E]">
+        {icon}
       </span>
-    </div>
-  );
-}
 
-// ============================================================
-// ORDER DETAIL MODAL
-// ============================================================
-
-function OrderDetailModal({
-  order,
-  isUpdating,
-  onClose,
-  onPrimaryAction,
-  onCancel,
-}) {
-  const status =
-    getStatusConfig(
-      order.status
-    );
-
-  const action =
-    NEXT_ACTIONS[
-      order.status
-    ];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-[#FFFDF8] p-6 sm:rounded-3xl sm:p-7">
-        {/* HEADER */}
-
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#B83A2E]">
-              Order Details
-            </p>
-
-            <h2 className="mt-2 text-2xl font-semibold">
-              #
-              {
-                order.orderNumber
-              }
-            </h2>
-
-            <p className="mt-1 text-xs text-[#6B6258]">
-              {formatDate(
-                order.createdAt
-              )}
-            </p>
-          </div>
-
-          <button
-            onClick={
-              onClose
-            }
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#DED6C9]"
-          >
-            <X
-              size={17}
-            />
-          </button>
-        </div>
-
-        {/* STATUS */}
-
-        <div className="mt-6 flex items-center justify-between rounded-2xl bg-[#F5F0E8] p-4">
-          <span className="text-xs font-medium text-[#6B6258]">
-            Current Status
-          </span>
-
-          <span
-            className={`rounded-full px-3 py-1.5 text-[10px] font-semibold ${status.className}`}
-          >
-            {status.label}
-          </span>
-        </div>
-
-        {/* CUSTOMER */}
-
-        <section className="mt-5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
-            Customer
-          </p>
-
-          <div className="mt-2 rounded-2xl border border-[#E5DED2] p-4">
-            <p className="text-sm font-semibold">
-              {
-                order.customer
-                  ?.name
-              }
-            </p>
-
-            <p className="mt-1 text-xs text-[#6B6258]">
-              {
-                order.customer
-                  ?.email
-              }
-            </p>
-
-            <p className="mt-1 text-xs text-[#6B6258]">
-              {
-                order.customer
-                  ?.phone
-              }
-            </p>
-          </div>
-        </section>
-
-        {/* TABLE */}
-
-        <section className="mt-5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
-            Table
-          </p>
-
-          <div className="mt-2 rounded-2xl border border-[#E5DED2] p-4">
-            <p className="text-sm font-semibold">
-              Table{" "}
-              {
-                order.tableId
-              }
-            </p>
-          </div>
-        </section>
-
-        {/* ITEMS */}
-
-        <section className="mt-5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8A8177]">
-            Items & Pricing
-          </p>
-
-          <div className="mt-2 divide-y divide-[#E5DED2] rounded-2xl border border-[#E5DED2]">
-            {order.items?.map(
-              (
-                item,
-                index
-              ) => {
-                const quantity = Math.max(
-                  1,
-                  Number(item.quantity || 1)
-                );
-
-                const addons = Array.isArray(
-                  item.addons || item.addOns
-                )
-                  ? item.addons || item.addOns
-                  : [];
-
-                const addonTotalPerUnit = addons.reduce(
-                  (sum, addon) =>
-                    sum +
-                    Number(addon?.price || 0) *
-                      Math.max(
-                        1,
-                        Number(addon?.quantity || 1)
-                      ),
-                  0
-                );
-
-                const addonTotal =
-                  addonTotalPerUnit * quantity;
-
-                const baseTotal =
-                  Number(item.price || 0) * quantity;
-
-                return (
-                  <div
-                    key={
-                      `${item.productId}-${index}`
-                    }
-                    className="p-4"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold">
-                          {item.name}
-                        </p>
-
-                        <p className="mt-1 text-xs text-[#6B6258]">
-                          Qty: {quantity}
-                        </p>
-
-                        {item.noodles && (
-                          <p className="mt-1 text-[11px] text-[#8A8177]">
-                            Noodles: {item.noodles}
-                          </p>
-                        )}
-
-                        {item.spice && (
-                          <p className="text-[11px] text-[#8A8177]">
-                            Spice: {item.spice}
-                          </p>
-                        )}
-                      </div>
-
-                      <p className="shrink-0 text-sm font-semibold">
-                        {formatPrice(item.total)}
-                      </p>
-                    </div>
-
-                    {/* EXPLICIT PRICE BREAKDOWN */}
-                    <div className="mt-3 rounded-xl bg-[#F5F0E8] p-3">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-[#6B6258]">
-                          Base item
-                        </span>
-                        <span className="font-medium">
-                          {formatPrice(baseTotal)}
-                        </span>
-                      </div>
-
-                      {addons.length > 0 && (
-                        <div className="mt-2 border-t border-[#DED6C9] pt-2">
-                          <div className="flex items-center justify-between text-[11px] font-semibold">
-                            <span className="text-[#171513]">
-                              Add-ons
-                            </span>
-                            <span className="text-[#B83A2E]">
-                              +{formatPrice(addonTotal)}
-                            </span>
-                          </div>
-
-                          <div className="mt-1.5 space-y-1">
-                            {addons.map(
-                              (addon, addonIndex) => {
-                                const addonQuantity = Math.max(
-                                  1,
-                                  Number(addon?.quantity || 1)
-                                );
-                                const addonLineTotal =
-                                  Number(addon?.price || 0) *
-                                  addonQuantity *
-                                  quantity;
-
-                                return (
-                                  <div
-                                    key={`${addon?.name || "addon"}-${addonIndex}`}
-                                    className="flex items-center justify-between gap-3 text-[11px] text-[#6B6258]"
-                                  >
-                                    <span className="min-w-0 truncate">
-                                      + {addon?.name || "Add-on"}
-                                      {addonQuantity > 1
-                                        ? ` × ${addonQuantity}`
-                                        : ""}
-                                      {quantity > 1
-                                        ? ` × ${quantity} items`
-                                        : ""}
-                                    </span>
-                                    <span className="shrink-0 font-medium text-[#171513]">
-                                      +{formatPrice(addonLineTotal)}
-                                    </span>
-                                  </div>
-                                );
-                              }
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-2 flex items-center justify-between border-t border-[#DED6C9] pt-2 text-xs font-semibold">
-                        <span>Item total</span>
-                        <span>{formatPrice(item.total)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-            )}
-          </div>
-        </section>
-
-        {/* BILL */}
-
-        <section className="mt-5 rounded-2xl bg-[#F5F0E8] p-5">
-          <div className="flex justify-between text-xs text-[#6B6258]">
-            <span>
-              Subtotal
-            </span>
-
-            <span>
-              {formatPrice(
-                order.subtotal
-              )}
-            </span>
-          </div>
-
-          <div className="mt-2 flex justify-between text-xs text-[#6B6258]">
-            <span>
-              GST ({order.taxRate}%)
-            </span>
-
-            <span>
-              {formatPrice(
-                order.taxAmount
-              )}
-            </span>
-          </div>
-
-          <div className="mt-4 flex justify-between border-t border-[#DED6C9] pt-4">
-            <span className="text-sm font-semibold">
-              Total
-            </span>
-
-            <span className="text-lg font-semibold">
-              {formatPrice(
-                order.total
-              )}
-            </span>
-          </div>
-        </section>
-
-        {/* ACTIONS */}
-
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-          {action && (
-            <button
-              disabled={
-                isUpdating
-              }
-              onClick={
-                onPrimaryAction
-              }
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#B83A2E] px-5 py-3.5 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {isUpdating && (
-                <Loader2
-                  size={16}
-                  className="animate-spin"
-                />
-              )}
-
-              {
-                action.label
-              }
-            </button>
-          )}
-
-          {(order.status ===
-            "pending" ||
-            order.status ===
-              "confirmed" ||
-            order.status ===
-              "preparing") && (
-            <button
-              disabled={
-                isUpdating
-              }
-              onClick={
-                onCancel
-              }
-              className="rounded-2xl border border-red-100 px-5 py-3.5 text-sm font-semibold text-red-600"
-            >
-              Cancel Order
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// CANCEL MODAL
-// ============================================================
-
-function CancelModal({
-  order,
-  reason,
-  setReason,
-  isUpdating,
-  onClose,
-  onConfirm,
-}) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-3xl bg-[#FFFDF8] p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-red-600">
-              Cancel Order
-            </p>
-
-            <h2 className="mt-2 text-xl font-semibold">
-              #
-              {
-                order.orderNumber
-              }
-            </h2>
-          </div>
-
-          <button
-            onClick={
-              onClose
-            }
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#DED6C9]"
-          >
-            <X
-              size={16}
-            />
-          </button>
-        </div>
-
-        <p className="mt-4 text-sm text-[#6B6258]">
-          Please provide a reason for
-          cancelling this order.
-        </p>
-
-        <textarea
-          value={reason}
-          onChange={(event) =>
-            setReason(
-              event.target.value
-            )
-          }
-          rows={4}
-          placeholder="e.g. Item unavailable, customer requested cancellation..."
-          className="mt-4 w-full resize-none rounded-2xl border border-[#DED6C9] bg-[#F5F0E8] p-4 text-sm outline-none focus:border-[#B83A2E]"
-        />
-
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={
-              onClose
-            }
-            className="flex-1 rounded-2xl border border-[#DED6C9] px-4 py-3 text-sm font-semibold"
-          >
-            Keep Order
-          </button>
-
-          <button
-            disabled={
-              isUpdating
-            }
-            onClick={
-              onConfirm
-            }
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {isUpdating && (
-              <Loader2
-                size={15}
-                className="animate-spin"
-              />
-            )}
-
-            Cancel Order
-          </button>
-        </div>
-      </div>
+      {label}
     </div>
   );
 }

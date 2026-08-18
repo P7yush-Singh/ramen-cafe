@@ -1,59 +1,33 @@
 import { connectDB } from "@/lib/mongodb";
-import { getServerUser } from "@/lib/auth-server";
 
 import User from "@/models/User";
 import Order from "@/models/Order";
 
+import {
+  requireUserAccess,
+  getUserRole,
+  ROLES,
+} from "@/lib/admin-auth";
+
 // ============================================================
-// ADMIN AUTH
+// CONSTANTS
 // ============================================================
 
-async function requireAdmin() {
-  const user = await getServerUser();
+const MANAGED_ROLES = [
+  ROLES.ADMIN,
+  ROLES.OWNER,
+  ROLES.STAFF,
+];
 
-  if (!user) {
-    return {
-      user: null,
-      response: Response.json(
-        {
-          success: false,
-          error: "Authentication required.",
-        },
-        {
-          status: 401,
-        }
-      ),
-    };
-  }
+const FILTER_ROLES = [
+  ROLES.CUSTOMER,
+  ROLES.ADMIN,
+  ROLES.OWNER,
+  ROLES.STAFF,
+];
 
-  const isAdmin =
-    user.role === "admin" ||
-    user.isAdmin === true ||
-    (process.env.ADMIN_EMAIL &&
-      user.email &&
-      user.email.toLowerCase() ===
-        process.env.ADMIN_EMAIL.toLowerCase());
-
-  if (!isAdmin) {
-    return {
-      user: null,
-      response: Response.json(
-        {
-          success: false,
-          error: "Admin access required.",
-        },
-        {
-          status: 403,
-        }
-      ),
-    };
-  }
-
-  return {
-    user,
-    response: null,
-  };
-}
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
 
 // ============================================================
 // HELPERS
@@ -73,7 +47,9 @@ function normalizeEmail(value) {
 
 function serializeUser(user) {
   return {
-    _id: user._id?.toString(),
+    _id: user._id
+      ? user._id.toString()
+      : null,
 
     name: user.name || "",
 
@@ -81,7 +57,9 @@ function serializeUser(user) {
 
     phone: user.phone || "",
 
-    role: user.role || "customer",
+    role:
+      user.role ||
+      ROLES.CUSTOMER,
 
     isActive:
       user.isActive !== false,
@@ -98,25 +76,68 @@ function serializeUser(user) {
 }
 
 // ============================================================
+// ROLE CREATION PERMISSION
+// ============================================================
+
+function canCreateRole(
+  actorRole,
+  targetRole
+) {
+  // ----------------------------------------------------------
+  // ADMIN
+  // ----------------------------------------------------------
+
+  if (
+    actorRole === ROLES.ADMIN
+  ) {
+    return MANAGED_ROLES.includes(
+      targetRole
+    );
+  }
+
+  // ----------------------------------------------------------
+  // OWNER
+  // ----------------------------------------------------------
+
+  if (
+    actorRole === ROLES.OWNER
+  ) {
+    return [
+      ROLES.OWNER,
+      ROLES.STAFF,
+    ].includes(targetRole);
+  }
+
+  // ----------------------------------------------------------
+  // STAFF / CUSTOMER
+  // ----------------------------------------------------------
+
+  return false;
+}
+
+// ============================================================
 // GET /api/admin/users
 // ============================================================
 
 export async function GET(request) {
   try {
-    // --------------------------------------------------------
-    // ADMIN AUTH
-    // --------------------------------------------------------
+    // ========================================================
+    // AUTHORIZATION
+    // ========================================================
 
     const auth =
-      await requireAdmin();
+      await requireUserAccess();
 
     if (auth.response) {
       return auth.response;
     }
 
-    // --------------------------------------------------------
-    // QUERY
-    // --------------------------------------------------------
+    const actorRole =
+      getUserRole(auth.user);
+
+    // ========================================================
+    // QUERY PARAMETERS
+    // ========================================================
 
     const { searchParams } =
       new URL(request.url);
@@ -160,23 +181,26 @@ export async function GET(request) {
       limitValue > 0
         ? Math.min(
             limitValue,
-            50
+            MAX_LIMIT
           )
-        : 20;
+        : DEFAULT_LIMIT;
 
-    // --------------------------------------------------------
+    // ========================================================
     // DATABASE
-    // --------------------------------------------------------
+    // ========================================================
 
     await connectDB();
 
-    // --------------------------------------------------------
+    // ========================================================
     // FILTER
-    // --------------------------------------------------------
+    // ========================================================
 
     const filter = {};
 
-    // Search
+    // --------------------------------------------------------
+    // SEARCH
+    // --------------------------------------------------------
+
     if (search) {
       const searchRegex =
         new RegExp(
@@ -200,42 +224,61 @@ export async function GET(request) {
       ];
     }
 
-    // Role
+    // --------------------------------------------------------
+    // ROLE FILTER
+    // --------------------------------------------------------
+
     if (
-      role === "customer" ||
-      role === "admin"
+      FILTER_ROLES.includes(role)
     ) {
       filter.role = role;
     }
 
-    // Status
-    if (status === "active") {
+    // --------------------------------------------------------
+    // STATUS FILTER
+    // --------------------------------------------------------
+
+    if (
+      status === "active"
+    ) {
       filter.isActive = true;
     }
 
-    if (status === "inactive") {
+    if (
+      status === "inactive"
+    ) {
       filter.isActive = false;
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // COUNTS
-    // --------------------------------------------------------
+    // ========================================================
 
     const [
       totalUsers,
       totalCustomers,
       totalAdmins,
+      totalOwners,
+      totalStaff,
       activeUsers,
       inactiveUsers,
     ] = await Promise.all([
       User.countDocuments({}),
 
       User.countDocuments({
-        role: "customer",
+        role: ROLES.CUSTOMER,
       }),
 
       User.countDocuments({
-        role: "admin",
+        role: ROLES.ADMIN,
+      }),
+
+      User.countDocuments({
+        role: ROLES.OWNER,
+      }),
+
+      User.countDocuments({
+        role: ROLES.STAFF,
       }),
 
       User.countDocuments({
@@ -247,9 +290,9 @@ export async function GET(request) {
       }),
     ]);
 
-    // --------------------------------------------------------
-    // PAGINATION COUNT
-    // --------------------------------------------------------
+    // ========================================================
+    // PAGINATION
+    // ========================================================
 
     const filteredCount =
       await User.countDocuments(
@@ -271,16 +314,26 @@ export async function GET(request) {
       );
 
     const skip =
-      (safePage - 1) * limit;
+      (safePage - 1) *
+      limit;
 
-    // --------------------------------------------------------
+    // ========================================================
     // USERS
-    // --------------------------------------------------------
+    // ========================================================
 
     const users =
       await User.find(filter)
         .select(
-          "name email phone role isActive lastLoginAt createdAt updatedAt"
+          [
+            "name",
+            "email",
+            "phone",
+            "role",
+            "isActive",
+            "lastLoginAt",
+            "createdAt",
+            "updatedAt",
+          ].join(" ")
         )
         .sort({
           createdAt: -1,
@@ -289,18 +342,18 @@ export async function GET(request) {
         .limit(limit)
         .lean();
 
-    // --------------------------------------------------------
+    // ========================================================
     // USER IDS
-    // --------------------------------------------------------
+    // ========================================================
 
     const userIds =
       users.map(
         (user) => user._id
       );
 
-    // --------------------------------------------------------
+    // ========================================================
     // ORDER STATISTICS
-    // --------------------------------------------------------
+    // ========================================================
 
     const orderStats =
       userIds.length > 0
@@ -329,9 +382,9 @@ export async function GET(request) {
           ])
         : [];
 
-    // --------------------------------------------------------
-    // CREATE STATS MAP
-    // --------------------------------------------------------
+    // ========================================================
+    // STATS MAP
+    // ========================================================
 
     const statsMap =
       new Map();
@@ -339,6 +392,10 @@ export async function GET(request) {
     for (
       const stat of orderStats
     ) {
+      if (!stat._id) {
+        continue;
+      }
+
       statsMap.set(
         stat._id.toString(),
         {
@@ -355,9 +412,9 @@ export async function GET(request) {
       );
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // FINAL USERS
-    // --------------------------------------------------------
+    // ========================================================
 
     const result =
       users.map((user) => {
@@ -380,9 +437,9 @@ export async function GET(request) {
         };
       });
 
-    // --------------------------------------------------------
+    // ========================================================
     // RESPONSE
-    // --------------------------------------------------------
+    // ========================================================
 
     return Response.json({
       success: true,
@@ -399,6 +456,12 @@ export async function GET(request) {
         admins:
           totalAdmins,
 
+        owners:
+          totalOwners,
+
+        staff:
+          totalStaff,
+
         active:
           activeUsers,
 
@@ -407,7 +470,8 @@ export async function GET(request) {
       },
 
       pagination: {
-        page: safePage,
+        page:
+          safePage,
 
         limit,
 
@@ -423,6 +487,30 @@ export async function GET(request) {
         hasPreviousPage:
           safePage > 1,
       },
+
+      permissions: {
+        actorRole,
+
+        canCreateAdmin:
+          actorRole ===
+          ROLES.ADMIN,
+
+        canCreateOwner:
+          [
+            ROLES.ADMIN,
+            ROLES.OWNER,
+          ].includes(
+            actorRole
+          ),
+
+        canCreateStaff:
+          [
+            ROLES.ADMIN,
+            ROLES.OWNER,
+          ].includes(
+            actorRole
+          ),
+      },
     });
   } catch (error) {
     console.error(
@@ -435,6 +523,295 @@ export async function GET(request) {
         success: false,
         error:
           "Unable to load users.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
+// ============================================================
+// POST /api/admin/users
+// ============================================================
+
+export async function POST(request) {
+  try {
+    // ========================================================
+    // AUTHORIZATION
+    // ========================================================
+
+    const auth =
+      await requireUserAccess();
+
+    if (auth.response) {
+      return auth.response;
+    }
+
+    const actorRole =
+      getUserRole(auth.user);
+
+    // ========================================================
+    // REQUEST BODY
+    // ========================================================
+
+    let body;
+
+    try {
+      body =
+        await request.json();
+    } catch {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Invalid request body.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // ========================================================
+    // INPUT
+    // ========================================================
+
+    const name =
+      cleanText(
+        body.name,
+        100
+      );
+
+    const email =
+      normalizeEmail(
+        body.email
+      );
+
+    const phone =
+      cleanText(
+        body.phone,
+        30
+      );
+
+    const role =
+      cleanText(
+        body.role,
+        30
+      ).toLowerCase();
+
+    const password =
+      String(
+        body.password || ""
+      );
+
+    // ========================================================
+    // VALIDATION
+    // ========================================================
+
+    if (!name) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Name is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!email) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Email is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!role) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Role is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (
+      !MANAGED_ROLES.includes(
+        role
+      )
+    ) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Only admin, owner, or staff accounts can be created from this endpoint.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (
+      !password ||
+      password.length < 8
+    ) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Password must be at least 8 characters.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // ========================================================
+    // ROLE PERMISSION
+    // ========================================================
+
+    if (
+      !canCreateRole(
+        actorRole,
+        role
+      )
+    ) {
+      if (
+        actorRole ===
+          ROLES.OWNER &&
+        role === ROLES.ADMIN
+      ) {
+        return Response.json(
+          {
+            success: false,
+            error:
+              "Owner cannot create an admin.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      return Response.json(
+        {
+          success: false,
+          error:
+            "You are not allowed to create this role.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    // ========================================================
+    // DATABASE
+    // ========================================================
+
+    await connectDB();
+
+    // ========================================================
+    // DUPLICATE EMAIL
+    // ========================================================
+
+    const existingUser =
+      await User.findOne({
+        email,
+      }).lean();
+
+    if (existingUser) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "A user with this email already exists.",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    // ========================================================
+    // CREATE USER
+    // ========================================================
+
+    const user =
+      await User.create({
+        name,
+        email,
+        phone,
+        password,
+        role,
+        isActive:
+          body.isActive !==
+          false,
+      });
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return Response.json(
+      {
+        success: true,
+
+        message:
+          "User created successfully.",
+
+        user:
+          serializeUser(user),
+      },
+      {
+        status: 201,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "POST /api/admin/users error:",
+      error
+    );
+
+    // --------------------------------------------------------
+    // DUPLICATE KEY
+    // --------------------------------------------------------
+
+    if (
+      error?.code === 11000
+    ) {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "A user with this email already exists.",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    return Response.json(
+      {
+        success: false,
+        error:
+          "Unable to create user.",
       },
       {
         status: 500,
