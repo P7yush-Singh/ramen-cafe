@@ -3,26 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import {
-  Search,
-  ShoppingCart,
-  SlidersHorizontal,
-  X,
-} from "lucide-react";
+import { Search, ShoppingCart, SlidersHorizontal, X } from "lucide-react";
 
 import MenuCard from "@/components/MenuCard";
 import ProductCustomization from "@/components/ProductCustomization";
 
-import {
-  getTableSession,
-  setTableSession,
-} from "@/lib/tableSession";
+import { getTableSession, setTableSession } from "@/lib/tableSession";
 
-import {
-  getCart,
-  saveCart,
-  clearCart,
-} from "@/lib/cart";
+import { getCart, saveCart, clearCart } from "@/lib/cart";
 
 import Image from "next/image";
 
@@ -33,26 +21,21 @@ export default function MenuPage() {
 
   const [products, setProducts] = useState([]);
 
-  const [activeCategory, setActiveCategory] =
-    useState("all");
+  const [activeCategory, setActiveCategory] = useState("all");
 
-  const [isLoadingProducts, setIsLoadingProducts] =
-    useState(true);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  const [productError, setProductError] =
-    useState("");
+  const [productError, setProductError] = useState("");
 
   const [search, setSearch] = useState("");
 
-  const [selectedProduct, setSelectedProduct] =
-    useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   const [cartCount, setCartCount] = useState(0);
 
   const [tableId, setTableId] = useState(null);
 
-  const [isDesktop, setIsDesktop] =
-    useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
 
   const [toast, setToast] = useState(null);
 
@@ -65,44 +48,31 @@ export default function MenuPage() {
       setIsLoadingProducts(true);
       setProductError("");
 
-      const response = await fetch(
-        "/api/products",
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+      const response = await fetch("/api/products", {
+        method: "GET",
+        cache: "no-store",
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.error ||
-            "Unable to load menu."
-        );
+        throw new Error(data.error || "Unable to load menu.");
       }
 
-      const normalizedProducts =
-        Array.isArray(data.products)
-          ? data.products.map((product) => ({
-              ...product,
+      const normalizedProducts = Array.isArray(data.products)
+        ? data.products.map((product) => ({
+            ...product,
 
-              // MongoDB ObjectId -> string ID
-              id: product._id?.toString(),
-            }))
-          : [];
+            // MongoDB ObjectId -> string ID
+            id: product._id?.toString(),
+          }))
+        : [];
 
       setProducts(normalizedProducts);
     } catch (error) {
-      console.error(
-        "Menu products error:",
-        error
-      );
+      console.error("Menu products error:", error);
 
-      setProductError(
-        error.message ||
-          "Unable to load menu."
-      );
+      setProductError(error.message || "Unable to load menu.");
 
       setProducts([]);
     } finally {
@@ -118,45 +88,24 @@ export default function MenuPage() {
     initializePage();
     loadProducts();
 
-    window.addEventListener(
-      "resize",
-      handleResize
-    );
+    window.addEventListener("resize", handleResize);
 
-    window.addEventListener(
-      "cart-updated",
-      updateCartCount
-    );
+    window.addEventListener("cart-updated", updateCartCount);
 
-    window.addEventListener(
-      "storage",
-      updateCartCount
-    );
+    window.addEventListener("storage", updateCartCount);
 
-    window.addEventListener(
-      "table-session-updated",
-      handleTableSessionUpdate
-    );
+    window.addEventListener("table-session-updated", handleTableSessionUpdate);
 
     return () => {
-      window.removeEventListener(
-        "resize",
-        handleResize
-      );
+      window.removeEventListener("resize", handleResize);
 
-      window.removeEventListener(
-        "cart-updated",
-        updateCartCount
-      );
+      window.removeEventListener("cart-updated", updateCartCount);
 
-      window.removeEventListener(
-        "storage",
-        updateCartCount
-      );
+      window.removeEventListener("storage", updateCartCount);
 
       window.removeEventListener(
         "table-session-updated",
-        handleTableSessionUpdate
+        handleTableSessionUpdate,
       );
     };
   }, []);
@@ -178,27 +127,19 @@ export default function MenuPage() {
   // =====================================================
 
   function initializeTable() {
-    const params = new URLSearchParams(
-      window.location.search
-    );
+    const params = new URLSearchParams(window.location.search);
 
-    const qrTableId = params
-      .get("table")
-      ?.trim()
-      .toUpperCase();
+    const qrTableId = params.get("table")?.trim().toUpperCase();
 
     // ---------------------------------------------------
     // NO TABLE IN URL
     // ---------------------------------------------------
 
     if (!qrTableId) {
-      const existingSession =
-        getTableSession();
+      const existingSession = getTableSession();
 
       if (existingSession) {
-        setTableId(
-          existingSession.tableId
-        );
+        setTableId(existingSession.tableId);
       }
 
       return;
@@ -220,28 +161,18 @@ export default function MenuPage() {
       return;
     }
 
-    const normalizedTableId =
-      String(newTableId)
-        .trim()
-        .toUpperCase();
+    const normalizedTableId = String(newTableId).trim().toUpperCase();
 
-    const currentSession =
-      getTableSession();
+    const currentSession = getTableSession();
 
-    const currentTableId =
-      currentSession?.tableId || null;
+    const currentTableId = currentSession?.tableId || null;
 
     // ---------------------------------------------------
     // SAME TABLE
     // ---------------------------------------------------
 
-    if (
-      currentTableId ===
-      normalizedTableId
-    ) {
-      setTableId(
-        normalizedTableId
-      );
+    if (currentTableId === normalizedTableId) {
+      setTableId(normalizedTableId);
 
       return;
     }
@@ -259,13 +190,9 @@ export default function MenuPage() {
     // ---------------------------------------------------
 
     if (currentCart.length === 0) {
-      setTableSession(
-        normalizedTableId
-      );
+      setTableSession(normalizedTableId);
 
-      setTableId(
-        normalizedTableId
-      );
+      setTableId(normalizedTableId);
 
       return;
     }
@@ -276,19 +203,13 @@ export default function MenuPage() {
     // ASK USER
     // ---------------------------------------------------
 
-    const shouldMoveCart =
-      window.confirm(
-        `Your current cart belongs to Table ${
-          currentTableId ||
-          "previous table"
-        }.\n\nYou have ${
-          currentCart.length
-        } item${
-          currentCart.length > 1
-            ? "s"
-            : ""
-        } in your cart.\n\nDo you want to move your cart to Table ${normalizedTableId}?`
-      );
+    const shouldMoveCart = window.confirm(
+      `Your current cart belongs to Table ${
+        currentTableId || "previous table"
+      }.\n\nYou have ${currentCart.length} item${
+        currentCart.length > 1 ? "s" : ""
+      } in your cart.\n\nDo you want to move your cart to Table ${normalizedTableId}?`,
+    );
 
     // ---------------------------------------------------
     // YES
@@ -297,24 +218,16 @@ export default function MenuPage() {
     // ---------------------------------------------------
 
     if (shouldMoveCart) {
-      const updatedCart =
-        currentCart.map(
-          (item) => ({
-            ...item,
-            tableId:
-              normalizedTableId,
-          })
-        );
+      const updatedCart = currentCart.map((item) => ({
+        ...item,
+        tableId: normalizedTableId,
+      }));
 
       saveCart(updatedCart);
 
-      setTableSession(
-        normalizedTableId
-      );
+      setTableSession(normalizedTableId);
 
-      setTableId(
-        normalizedTableId
-      );
+      setTableId(normalizedTableId);
 
       return;
     }
@@ -327,13 +240,9 @@ export default function MenuPage() {
 
     clearCart();
 
-    setTableSession(
-      normalizedTableId
-    );
+    setTableSession(normalizedTableId);
 
-    setTableId(
-      normalizedTableId
-    );
+    setTableId(normalizedTableId);
   }
 
   // =====================================================
@@ -341,13 +250,10 @@ export default function MenuPage() {
   // =====================================================
 
   function handleTableSessionUpdate() {
-    const session =
-      getTableSession();
+    const session = getTableSession();
 
     if (session) {
-      setTableId(
-        session.tableId
-      );
+      setTableId(session.tableId);
     } else {
       setTableId(null);
     }
@@ -358,9 +264,7 @@ export default function MenuPage() {
   // =====================================================
 
   function handleResize() {
-    setIsDesktop(
-      window.innerWidth >= 1024
-    );
+    setIsDesktop(window.innerWidth >= 1024);
   }
 
   // =====================================================
@@ -372,20 +276,13 @@ export default function MenuPage() {
       const cart = getCart();
 
       const count = cart.reduce(
-        (total, item) =>
-          total +
-          Number(
-            item.quantity || 0
-          ),
-        0
+        (total, item) => total + Number(item.quantity || 0),
+        0,
       );
 
       setCartCount(count);
     } catch (error) {
-      console.error(
-        "Unable to update cart count:",
-        error
-      );
+      console.error("Unable to update cart count:", error);
 
       setCartCount(0);
     }
@@ -407,10 +304,7 @@ export default function MenuPage() {
   // SUCCESS TOAST
   // =====================================================
 
-  function showAddedToast(
-    product,
-    total
-  ) {
+  function showAddedToast(product, total) {
     setToast({
       product,
       total,
@@ -428,11 +322,7 @@ export default function MenuPage() {
   const categories = useMemo(() => {
     const uniqueCategories = [
       ...new Set(
-        products
-          .map((product) =>
-            product.category?.trim()
-          )
-          .filter(Boolean)
+        products.map((product) => product.category?.trim()).filter(Boolean),
       ),
     ];
 
@@ -442,12 +332,10 @@ export default function MenuPage() {
         name: "All",
       },
 
-      ...uniqueCategories.map(
-        (category) => ({
-          id: category,
-          name: category,
-        })
-      ),
+      ...uniqueCategories.map((category) => ({
+        id: category,
+        name: category,
+      })),
     ];
   }, [products]);
 
@@ -456,46 +344,24 @@ export default function MenuPage() {
   // =====================================================
 
   const filteredProducts = useMemo(() => {
-    const searchValue =
-      search
-        .trim()
-        .toLowerCase();
+    const searchValue = search.trim().toLowerCase();
 
-    return products.filter(
-      (product) => {
-        const categoryMatch =
-          activeCategory === "all" ||
-          product.category ===
-            activeCategory;
+    return products.filter((product) => {
+      const categoryMatch =
+        activeCategory === "all" || product.category === activeCategory;
 
-        const name =
-          product.name
-            ?.toLowerCase() || "";
+      const name = product.name?.toLowerCase() || "";
 
-        const description =
-          product.description
-            ?.toLowerCase() || "";
+      const description = product.description?.toLowerCase() || "";
 
-        const searchMatch =
-          !searchValue ||
-          name.includes(
-            searchValue
-          ) ||
-          description.includes(
-            searchValue
-          );
+      const searchMatch =
+        !searchValue ||
+        name.includes(searchValue) ||
+        description.includes(searchValue);
 
-        return (
-          categoryMatch &&
-          searchMatch
-        );
-      }
-    );
-  }, [
-    products,
-    activeCategory,
-    search,
-  ]);
+      return categoryMatch && searchMatch;
+    });
+  }, [products, activeCategory, search]);
 
   // =====================================================
   // UI
@@ -511,10 +377,7 @@ export default function MenuPage() {
         <div className="mx-auto flex h-[68px] max-w-[1440px] items-center justify-between px-4 sm:h-20 sm:px-8 lg:px-12">
           {/* Brand */}
 
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 sm:gap-3"
-          >
+          <Link href="/" className="flex items-center gap-2.5 sm:gap-3">
             <div className="flex h-16 w-16 items-center justify-center rounded-full">
               <Image
                 src="/logo.png"
@@ -550,7 +413,6 @@ export default function MenuPage() {
               className="relative py-7 text-sm font-medium text-[#B83A2E]"
             >
               Menu
-
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#B83A2E]" />
             </Link>
 
@@ -570,9 +432,7 @@ export default function MenuPage() {
           >
             <ShoppingCart size={17} />
 
-            <span className="hidden sm:inline">
-              Cart
-            </span>
+            <span className="hidden sm:inline">Cart</span>
 
             {cartCount > 0 && (
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#B83A2E] px-1.5 text-[10px] font-bold text-white sm:h-6 sm:min-w-6 sm:text-[11px]">
@@ -591,7 +451,6 @@ export default function MenuPage() {
         <div className="mx-auto max-w-[1440px] px-4 pt-3 sm:px-8 lg:px-12">
           <div className="inline-flex items-center gap-2 rounded-full bg-[#171513] px-3 py-1.5 text-[11px] font-medium text-white sm:px-4 sm:py-2 sm:text-xs">
             <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-
             Table {tableId}
           </div>
         </div>
@@ -630,11 +489,7 @@ export default function MenuPage() {
             <input
               type="text"
               value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search menu..."
               className="w-full rounded-full border border-[#DED6C9] bg-[#FFFDF8] py-3 pl-11 pr-10 text-sm outline-none transition placeholder:text-[#8A8177] focus:border-[#171513]"
             />
@@ -642,9 +497,7 @@ export default function MenuPage() {
             {search && (
               <button
                 type="button"
-                onClick={() =>
-                  setSearch("")
-                }
+                onClick={() => setSearch("")}
                 className="absolute right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[#6B6258] hover:bg-[#F5F0E8]"
                 aria-label="Clear search"
               >
@@ -661,41 +514,31 @@ export default function MenuPage() {
 
       <section className="sticky top-[68px] z-30 border-y border-[#E5DED2] bg-[#F5F0E8]/95 backdrop-blur-xl sm:top-20">
         <div className="mx-auto flex max-w-[1440px] items-center gap-2 overflow-x-auto px-4 py-2.5 sm:px-8 sm:py-3 lg:px-12">
-          {categories.map(
-            (category) => {
-              const active =
-                activeCategory ===
-                category.id;
+          {categories.map((category) => {
+            const active = activeCategory === category.id;
 
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() =>
-                    setActiveCategory(
-                      category.id
-                    )
-                  }
-                  className={`shrink-0 rounded-full px-4 py-2 text-xs font-medium transition sm:px-5 sm:py-2.5 sm:text-sm ${
-                    active
-                      ? "bg-[#171513] text-white"
-                      : "bg-[#FFFDF8] text-[#6B6258] hover:text-[#171513]"
-                  }`}
-                >
-                  {category.name}
-                </button>
-              );
-            }
-          )}
+            return (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => setActiveCategory(category.id)}
+                className={`shrink-0 rounded-full px-4 py-2 text-xs font-medium transition sm:px-5 sm:py-2.5 sm:text-sm ${
+                  active
+                    ? "bg-[#171513] text-white"
+                    : "bg-[#FFFDF8] text-[#6B6258] hover:text-[#171513]"
+                }`}
+              >
+                {category.name}
+              </button>
+            );
+          })}
 
           <button
             type="button"
             className="ml-auto hidden shrink-0 rounded-full border border-[#DED6C9] bg-[#FFFDF8] p-3 lg:flex"
             aria-label="Filter menu"
           >
-            <SlidersHorizontal
-              size={16}
-            />
+            <SlidersHorizontal size={16} />
           </button>
         </div>
       </section>
@@ -711,14 +554,12 @@ export default function MenuPage() {
 
         {isLoadingProducts ? (
           <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-            {[1, 2, 3, 4].map(
-              (item) => (
-                <div
-                  key={item}
-                  className="h-48 animate-pulse rounded-3xl bg-[#FFFDF8]"
-                />
-              )
-            )}
+            {[1, 2, 3, 4].map((item) => (
+              <div
+                key={item}
+                className="h-48 animate-pulse rounded-3xl bg-[#FFFDF8]"
+              />
+            ))}
           </div>
         ) : productError ? (
           /* -------------------------------------------------
@@ -726,17 +567,11 @@ export default function MenuPage() {
           ------------------------------------------------- */
 
           <div className="rounded-3xl bg-[#FFFDF8] px-5 py-20 text-center">
-            <p className="text-4xl">
-              🍜
-            </p>
+            <p className="text-4xl">🍜</p>
 
-            <h2 className="mt-4 text-xl font-semibold">
-              Unable to load menu
-            </h2>
+            <h2 className="mt-4 text-xl font-semibold">Unable to load menu</h2>
 
-            <p className="mt-2 text-sm text-[#6B6258]">
-              {productError}
-            </p>
+            <p className="mt-2 text-sm text-[#6B6258]">{productError}</p>
 
             <button
               type="button"
@@ -746,20 +581,15 @@ export default function MenuPage() {
               Try Again
             </button>
           </div>
-        ) : filteredProducts.length ===
-          0 ? (
+        ) : filteredProducts.length === 0 ? (
           /* -------------------------------------------------
               EMPTY
           ------------------------------------------------- */
 
           <div className="rounded-3xl bg-[#FFFDF8] px-5 py-20 text-center">
-            <p className="text-4xl">
-              🍜
-            </p>
+            <p className="text-4xl">🍜</p>
 
-            <h2 className="mt-4 text-xl font-semibold">
-              Nothing found
-            </h2>
+            <h2 className="mt-4 text-xl font-semibold">Nothing found</h2>
 
             <p className="mt-2 text-sm text-[#6B6258]">
               Try another dish or category.
@@ -769,9 +599,7 @@ export default function MenuPage() {
               type="button"
               onClick={() => {
                 setSearch("");
-                setActiveCategory(
-                  "all"
-                );
+                setActiveCategory("all");
               }}
               className="mt-6 rounded-full bg-[#171513] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#B83A2E]"
             >
@@ -784,21 +612,14 @@ export default function MenuPage() {
           ------------------------------------------------- */
 
           <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-            {filteredProducts.map(
-              (product) => (
-                <MenuCard
-                  key={product.id}
-                  product={product}
-                  onCustomize={
-                    handleCustomize
-                  }
-                  isSelected={
-                    selectedProduct?.id ===
-                    product.id
-                  }
-                />
-              )
-            )}
+            {filteredProducts.map((product) => (
+              <MenuCard
+                key={product.id}
+                product={product}
+                onCustomize={handleCustomize}
+                isSelected={selectedProduct?.id === product.id}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -810,26 +631,14 @@ export default function MenuPage() {
       {selectedProduct && (
         <ProductCustomization
           product={selectedProduct}
-          mode={
-            isDesktop
-              ? "desktop"
-              : "mobile"
-          }
-          onClose={
-            closeCustomization
-          }
-          onAdded={({
-            product,
-            total,
-          }) => {
+          mode={isDesktop ? "desktop" : "mobile"}
+          onClose={closeCustomization}
+          onAdded={({ product, total }) => {
             updateCartCount();
 
             closeCustomization();
 
-            showAddedToast(
-              product,
-              total
-            );
+            showAddedToast(product, total);
           }}
         />
       )}
@@ -844,26 +653,18 @@ export default function MenuPage() {
             href="/"
             className="flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#6B6258]"
           >
-            <span className="text-lg leading-none">
-              ⌂
-            </span>
+            <span className="text-lg leading-none">⌂</span>
 
-            <span className="text-[10px]">
-              Home
-            </span>
+            <span className="text-[10px]">Home</span>
           </Link>
 
           <Link
             href="/menu"
             className="flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#B83A2E]"
           >
-            <span className="text-lg leading-none">
-              ▣
-            </span>
+            <span className="text-lg leading-none">▣</span>
 
-            <span className="text-[10px] font-medium">
-              Menu
-            </span>
+            <span className="text-[10px] font-medium">Menu</span>
           </Link>
 
           <Link
@@ -871,9 +672,7 @@ export default function MenuPage() {
             className="relative flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#6B6258]"
           >
             <div className="relative">
-              <ShoppingCart
-                size={18}
-              />
+              <ShoppingCart size={18} />
 
               {cartCount > 0 && (
                 <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#B83A2E] px-1 text-[8px] font-bold text-white">
@@ -882,22 +681,16 @@ export default function MenuPage() {
               )}
             </div>
 
-            <span className="text-[10px]">
-              Cart
-            </span>
+            <span className="text-[10px]">Cart</span>
           </Link>
 
           <Link
             href="/account"
             className="flex min-w-[58px] flex-col items-center gap-0.5 px-3 py-1.5 text-[#6B6258]"
           >
-            <span className="text-lg leading-none">
-              ♙
-            </span>
+            <span className="text-lg leading-none">♙</span>
 
-            <span className="text-[10px]">
-              Account
-            </span>
+            <span className="text-[10px]">Account</span>
           </Link>
         </div>
       </nav>
@@ -914,13 +707,10 @@ export default function MenuPage() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">
-                Added to cart
-              </p>
+              <p className="text-sm font-semibold">Added to cart</p>
 
               <p className="mt-0.5 truncate text-xs text-white/60">
-                {toast.product} · ₹
-                {toast.total}
+                {toast.product} · ₹{toast.total}
               </p>
             </div>
 
