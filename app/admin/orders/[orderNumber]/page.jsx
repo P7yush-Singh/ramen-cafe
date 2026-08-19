@@ -150,8 +150,86 @@ export default function AdminOrderDetailsPage({
     useState("");
 
   // ==========================================================
-  // LOAD ORDER
-  // ==========================================================
+// LOAD ORDER
+// ==========================================================
+
+useEffect(() => {
+  async function loadOrder() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const resolvedParams =
+        await params;
+
+      const orderNumber =
+        String(
+          resolvedParams?.orderNumber || ""
+        ).trim();
+
+      if (!orderNumber) {
+        throw new Error(
+          "Order number is required."
+        );
+      }
+
+      const response =
+        await fetch(
+          `/api/admin/orders/${encodeURIComponent(
+            orderNumber
+          )}`,
+          {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Unable to load order."
+        );
+      }
+
+      setOrder(
+        data.order
+      );
+
+      if (
+        data.order?.payment
+          ?.method
+      ) {
+        setPaymentMethod(
+          data.order.payment.method
+        );
+      }
+
+      setTransactionId(
+        data.order?.payment
+          ?.transactionId ||
+          ""
+      );
+    } catch (err) {
+      console.error(
+        "Admin order details error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Unable to load order."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  loadOrder();
+}, [params]);
 
   useEffect(() => {
     async function loadOrder() {
