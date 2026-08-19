@@ -1,14 +1,67 @@
-import mongoose from "mongoose";
-
 import { connectDB } from "@/lib/mongodb";
+import { getServerUser } from "@/lib/auth-server";
+
 import Order from "@/models/Order";
 
-import {
-  requireUserAccess,
-} from "@/lib/admin-auth";
+// ============================================================
+// RESPONSE HELPERS
+// ============================================================
+
+function successResponse(
+  data,
+  status = 200
+) {
+  return Response.json(
+    {
+      success: true,
+      ...data,
+    },
+    {
+      status,
+    }
+  );
+}
+
+function errorResponse(
+  message,
+  status = 400
+) {
+  return Response.json(
+    {
+      success: false,
+      error: message,
+    },
+    {
+      status,
+    }
+  );
+}
 
 // ============================================================
-// CONSTANTS
+// ADMIN AUTH
+// ============================================================
+
+function isAdminUser(user) {
+  if (!user) {
+    return false;
+  }
+
+  const role = String(
+    user.role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    role === "admin" ||
+    role === "owner" ||
+    role === "staff" ||
+    role === "manager"
+  );
+}
+
+// ============================================================
+// ALLOWED STATUSES
 // ============================================================
 
 const ALLOWED_STATUSES = [
@@ -21,39 +74,66 @@ const ALLOWED_STATUSES = [
   "cancelled",
 ];
 
-const ALLOWED_PAYMENT_METHODS = [
-  "cash",
-  "upi",
-  "card",
-  "online",
-  "other",
-];
-
-const ALLOWED_PAYMENT_STATUSES = [
-  "pending",
-  "paid",
-  "failed",
-  "refunded",
-];
-
 // ============================================================
-// HELPERS
+// STATUS TRANSITIONS
 // ============================================================
 
-async function getIdentifier(params) {
-  const resolved =
-    await params;
+const STATUS_TRANSITIONS = {
+  pending: [
+    "confirmed",
+    "cancelled",
+  ],
 
-  return String(
-    resolved?.id || ""
-  ).trim();
+  confirmed: [
+    "preparing",
+    "cancelled",
+  ],
+
+  preparing: [
+    "ready",
+    "cancelled",
+  ],
+
+  ready: [
+    "served",
+    "cancelled",
+  ],
+
+  served: [
+    "completed",
+  ],
+
+  completed: [],
+
+  cancelled: [],
+};
+
+function isValidStatusTransition(
+  currentStatus,
+  nextStatus
+) {
+  const allowed =
+    STATUS_TRANSITIONS[
+      currentStatus
+    ] || [];
+
+  return allowed.includes(
+    nextStatus
+  );
 }
 
+// ============================================================
+// SERIALIZE ORDER
+// ============================================================
+
 function serializeOrder(order) {
-  if (!order) return null;
+  if (!order) {
+    return null;
+  }
 
   return {
-    _id: order._id?.toString(),
+    _id:
+      order._id?.toString(),
 
     orderNumber:
       order.orderNumber,
@@ -66,9 +146,11 @@ function serializeOrder(order) {
           name:
             order.customer.name ||
             "",
+
           email:
             order.customer.email ||
             "",
+
           phone:
             order.customer.phone ||
             "",
@@ -78,60 +160,85 @@ function serializeOrder(order) {
     tableId:
       order.tableId || "",
 
-    items: Array.isArray(order.items)
-      ? order.items.map((item) => ({
-          productId:
-            item.productId,
+    items:
+      Array.isArray(
+        order.items
+      )
+        ? order.items.map(
+            (item) => ({
+              productId:
+                item.productId,
 
-          name:
-            item.name,
+              name:
+                item.name,
 
-          image:
-            item.image || "",
+              image:
+                item.image || "",
 
-          price:
-            Number(item.price || 0),
+              price:
+                Number(
+                  item.price || 0
+                ),
 
-          quantity:
-            Number(item.quantity || 0),
+              quantity:
+                Number(
+                  item.quantity || 0
+                ),
 
-          noodles:
-            item.noodles || "",
+              noodles:
+                item.noodles || "",
 
-          spice:
-            item.spice || "",
+              spice:
+                item.spice || "",
 
-          addons:
-            Array.isArray(item.addons)
-              ? item.addons.map(
-                  (addon) => ({
-                    name:
-                      addon.name,
-
-                    price:
-                      Number(
-                        addon.price || 0
-                      ),
-                  })
+              addons:
+                Array.isArray(
+                  item.addons
                 )
-              : [],
+                  ? item.addons.map(
+                      (addon) => ({
+                        name:
+                          addon.name,
 
-          total:
-            Number(item.total || 0),
-        }))
-      : [],
+                        price:
+                          Number(
+                            addon.price ||
+                              0
+                          ),
+                      })
+                    )
+                  : [],
+
+              total:
+                Number(
+                  item.total || 0
+                ),
+            })
+          )
+        : [],
 
     subtotal:
-      Number(order.subtotal || 0),
+      Number(
+        order.subtotal || 0
+      ),
 
     taxRate:
-      Number(order.taxRate || 0),
+      Number(
+        order.taxRate || 0
+      ),
 
     taxAmount:
-      Number(order.taxAmount || 0),
+      Number(
+        order.taxAmount || 0
+      ),
 
     total:
-      Number(order.total || 0),
+      Number(
+        order.total || 0
+      ),
+
+    status:
+      order.status,
 
     bill: order.bill
       ? {
@@ -178,7 +285,8 @@ function serializeOrder(order) {
             null,
 
           transactionId:
-            order.payment.transactionId ||
+            order.payment
+              .transactionId ||
             null,
 
           paidAt:
@@ -194,9 +302,6 @@ function serializeOrder(order) {
             null,
         }
       : null,
-
-    status:
-      order.status,
 
     estimatedPreparationMinutes:
       Number(
@@ -246,30 +351,9 @@ function serializeOrder(order) {
   };
 }
 
-async function findOrder(identifier) {
-  if (
-    mongoose.Types.ObjectId.isValid(
-      identifier
-    )
-  ) {
-    const byId =
-      await Order.findById(
-        identifier
-      );
-
-    if (byId) {
-      return byId;
-    }
-  }
-
-  return Order.findOne({
-    orderNumber:
-      identifier,
-  });
-}
-
 // ============================================================
-// GET /api/admin/orders/[id]
+// GET
+// /api/admin/orders/[orderNumber]
 // ============================================================
 
 export async function GET(
@@ -281,32 +365,45 @@ export async function GET(
     // AUTH
     // ----------------------------------------------------------
 
-    const auth =
-      await requireUserAccess();
+    const user =
+      await getServerUser();
 
-    if (auth.response) {
-      return auth.response;
-    }
-
-    // ----------------------------------------------------------
-    // ID
-    // ----------------------------------------------------------
-
-    const identifier =
-      await getIdentifier(params);
-
-    if (!identifier) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "Order ID is required.",
-        },
-        {
-          status: 400,
-        }
+    if (!user) {
+      return errorResponse(
+        "Authentication required.",
+        401
       );
     }
+
+    if (!isAdminUser(user)) {
+      return errorResponse(
+        "You are not authorized to access this order.",
+        403
+      );
+    }
+
+    // ----------------------------------------------------------
+    // PARAMS
+    // ----------------------------------------------------------
+
+    const resolvedParams =
+      await params;
+
+    const orderNumber =
+      String(
+        resolvedParams?.orderNumber ||
+          ""
+      ).trim();
+
+    if (!orderNumber) {
+      return errorResponse(
+        "Order number is required.",
+        400
+      );
+    }
+
+    const normalizedOrderNumber =
+      orderNumber.toUpperCase();
 
     // ----------------------------------------------------------
     // DATABASE
@@ -315,49 +412,40 @@ export async function GET(
     await connectDB();
 
     const order =
-      await findOrder(
-        identifier
-      );
+      await Order.findOne({
+        orderNumber:
+          normalizedOrderNumber,
+      }).lean();
 
     if (!order) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "Order not found.",
-        },
-        {
-          status: 404,
-        }
+      return errorResponse(
+        "Order not found.",
+        404
       );
     }
 
-    return Response.json({
-      success: true,
+    return successResponse({
       order:
-        serializeOrder(order),
+        serializeOrder(
+          order
+        ),
     });
   } catch (error) {
     console.error(
-      "GET /api/admin/orders/[id] error:",
+      "GET /api/admin/orders/[orderNumber] error:",
       error
     );
 
-    return Response.json(
-      {
-        success: false,
-        error:
-          "Unable to load order.",
-      },
-      {
-        status: 500,
-      }
+    return errorResponse(
+      "Unable to load order.",
+      500
     );
   }
 }
 
 // ============================================================
-// PATCH /api/admin/orders/[id]
+// PATCH
+// /api/admin/orders/[orderNumber]
 // ============================================================
 
 export async function PATCH(
@@ -369,32 +457,45 @@ export async function PATCH(
     // AUTH
     // ----------------------------------------------------------
 
-    const auth =
-      await requireUserAccess();
+    const user =
+      await getServerUser();
 
-    if (auth.response) {
-      return auth.response;
-    }
-
-    // ----------------------------------------------------------
-    // ID
-    // ----------------------------------------------------------
-
-    const identifier =
-      await getIdentifier(params);
-
-    if (!identifier) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "Order ID is required.",
-        },
-        {
-          status: 400,
-        }
+    if (!user) {
+      return errorResponse(
+        "Authentication required.",
+        401
       );
     }
+
+    if (!isAdminUser(user)) {
+      return errorResponse(
+        "You are not authorized to update orders.",
+        403
+      );
+    }
+
+    // ----------------------------------------------------------
+    // PARAMS
+    // ----------------------------------------------------------
+
+    const resolvedParams =
+      await params;
+
+    const orderNumber =
+      String(
+        resolvedParams?.orderNumber ||
+          ""
+      ).trim();
+
+    if (!orderNumber) {
+      return errorResponse(
+        "Order number is required.",
+        400
+      );
+    }
+
+    const normalizedOrderNumber =
+      orderNumber.toUpperCase();
 
     // ----------------------------------------------------------
     // BODY
@@ -406,15 +507,75 @@ export async function PATCH(
       body =
         await request.json();
     } catch {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "Invalid request body.",
-        },
-        {
-          status: 400,
-        }
+      return errorResponse(
+        "Invalid JSON request body.",
+        400
+      );
+    }
+
+    if (
+      !body ||
+      typeof body !==
+        "object" ||
+      Array.isArray(body)
+    ) {
+      return errorResponse(
+        "Invalid request body.",
+        400
+      );
+    }
+
+    // ----------------------------------------------------------
+    // STATUS
+    // ----------------------------------------------------------
+
+    const nextStatus =
+      String(
+        body.status || ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (!nextStatus) {
+      return errorResponse(
+        "New order status is required.",
+        400
+      );
+    }
+
+    if (
+      !ALLOWED_STATUSES.includes(
+        nextStatus
+      )
+    ) {
+      return errorResponse(
+        `Invalid status. Allowed values: ${ALLOWED_STATUSES.join(
+          ", "
+        )}.`,
+        400
+      );
+    }
+
+    // ----------------------------------------------------------
+    // CANCELLATION
+    // ----------------------------------------------------------
+
+    const cancellationReason =
+      String(
+        body.cancellationReason ||
+          ""
+      )
+        .trim()
+        .slice(0, 500);
+
+    if (
+      nextStatus ===
+        "cancelled" &&
+      !cancellationReason
+    ) {
+      return errorResponse(
+        "Cancellation reason is required.",
+        400
       );
     }
 
@@ -425,357 +586,165 @@ export async function PATCH(
     await connectDB();
 
     const order =
-      await findOrder(
-        identifier
-      );
+      await Order.findOne({
+        orderNumber:
+          normalizedOrderNumber,
+      });
 
     if (!order) {
-      return Response.json(
-        {
-          success: false,
-          error:
-            "Order not found.",
-        },
-        {
-          status: 404,
-        }
+      return errorResponse(
+        "Order not found.",
+        404
       );
     }
 
-    // ==========================================================
-    // STATUS UPDATE
-    // ==========================================================
+    // ----------------------------------------------------------
+    // CURRENT STATUS
+    // ----------------------------------------------------------
+
+    const currentStatus =
+      String(
+        order.status || ""
+      )
+        .trim()
+        .toLowerCase();
+
+    // ----------------------------------------------------------
+    // SAME STATUS
+    // ----------------------------------------------------------
 
     if (
-      body.status !== undefined
+      currentStatus ===
+      nextStatus
     ) {
-      const nextStatus =
-        String(
-          body.status
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        !ALLOWED_STATUSES.includes(
-          nextStatus
-        )
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "Invalid order status.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-
-      // --------------------------------------------------------
-      // CANCEL
-      // --------------------------------------------------------
-
-      if (
-        nextStatus ===
-        "cancelled"
-      ) {
-        const reason =
-          String(
-            body.cancellationReason ||
-              ""
-          )
-            .trim()
-            .slice(0, 500);
-
-        if (!reason) {
-          return Response.json(
-            {
-              success: false,
-              error:
-                "Cancellation reason is required.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-
-        order.status =
-          "cancelled";
-
-        order.cancelledAt =
-          new Date();
-
-        order.cancellationReason =
-          reason;
-      } else {
-        order.status =
-          nextStatus;
-
-        const now =
-          new Date();
-
-        if (
-          nextStatus ===
-          "confirmed"
-        ) {
-          order.confirmedAt =
-            now;
-        }
-
-        if (
-          nextStatus ===
-          "preparing"
-        ) {
-          order.preparingAt =
-            now;
-        }
-
-        if (
-          nextStatus ===
-          "ready"
-        ) {
-          order.readyAt =
-            now;
-
-          if (
-            order.estimatedPreparationMinutes
-          ) {
-            order.estimatedReadyAt =
-              now;
-          }
-        }
-
-        if (
-          nextStatus ===
-          "served"
-        ) {
-          order.servedAt =
-            now;
-        }
-
-        if (
-          nextStatus ===
-          "completed"
-        ) {
-          order.completedAt =
-            now;
-        }
-      }
+      return errorResponse(
+        `Order is already ${nextStatus}.`,
+        409
+      );
     }
 
-    // ==========================================================
-    // PAYMENT UPDATE
-    // ==========================================================
+    // ----------------------------------------------------------
+    // VALIDATE TRANSITION
+    // ----------------------------------------------------------
 
     if (
-      body.paymentStatus !==
-      undefined
+      !isValidStatusTransition(
+        currentStatus,
+        nextStatus
+      )
     ) {
-      const nextPaymentStatus =
-        String(
-          body.paymentStatus
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        !ALLOWED_PAYMENT_STATUSES.includes(
-          nextPaymentStatus
-        )
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "Invalid payment status.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-
-      order.payment.status =
-        nextPaymentStatus;
-
-      if (
-        nextPaymentStatus ===
-        "paid"
-      ) {
-        const method =
-          String(
-            body.paymentMethod ||
-              ""
-          )
-            .trim()
-            .toLowerCase();
-
-        if (
-          !ALLOWED_PAYMENT_METHODS.includes(
-            method
-          )
-        ) {
-          return Response.json(
-            {
-              success: false,
-              error:
-                "A valid payment method is required.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-
-        order.payment.method =
-          method;
-
-        order.payment.amount =
-          Number(
-            order.total || 0
-          );
-
-        order.payment.paidAt =
-          new Date();
-
-        // Keep bill synchronized.
-        order.bill.status =
-          "paid";
-
-        order.bill.amount =
-          Number(
-            order.total || 0
-          );
-
-        order.bill.paidAt =
-          new Date();
-      }
-
-      if (
-        nextPaymentStatus ===
-        "pending"
-      ) {
-        order.payment.amount =
-          0;
-
-        order.payment.method =
-          null;
-
-        order.payment.paidAt =
-          null;
-
-        order.bill.status =
-          "generated";
-
-        order.bill.paidAt =
-          null;
-      }
-
-      if (
-        nextPaymentStatus ===
-        "failed"
-      ) {
-        order.payment.paidAt =
-          null;
-      }
-
-      if (
-        nextPaymentStatus ===
-        "refunded"
-      ) {
-        order.payment.paidAt =
-          order.payment.paidAt ||
-          new Date();
-      }
+      return errorResponse(
+        `Order cannot move from "${currentStatus}" to "${nextStatus}".`,
+        409
+      );
     }
 
-    // ==========================================================
-    // PAYMENT METHOD ONLY
-    // ==========================================================
+    // ----------------------------------------------------------
+    // UPDATE STATUS
+    // ----------------------------------------------------------
+
+    order.status =
+      nextStatus;
+
+    const now =
+      new Date();
+
+    // ----------------------------------------------------------
+    // TIMESTAMPS
+    // ----------------------------------------------------------
 
     if (
-      body.paymentMethod !==
-        undefined &&
-      body.paymentStatus ===
-        undefined
+      nextStatus ===
+      "confirmed"
     ) {
-      const method =
-        String(
-          body.paymentMethod ||
-            ""
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        !ALLOWED_PAYMENT_METHODS.includes(
-          method
-        )
-      ) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              "Invalid payment method.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-
-      order.payment.method =
-        method;
+      order.confirmedAt =
+        now;
     }
-
-    // ==========================================================
-    // TRANSACTION ID
-    // ==========================================================
 
     if (
-      body.transactionId !==
-      undefined
+      nextStatus ===
+      "preparing"
     ) {
-      order.payment.transactionId =
-        String(
-          body.transactionId ||
-            ""
-        )
-          .trim()
-          .slice(0, 100);
+      order.preparingAt =
+        now;
     }
 
-    // ==========================================================
+    if (
+      nextStatus ===
+      "ready"
+    ) {
+      order.readyAt =
+        now;
+
+      order.estimatedReadyAt =
+        now;
+    }
+
+    if (
+      nextStatus ===
+      "served"
+    ) {
+      order.servedAt =
+        now;
+    }
+
+    if (
+      nextStatus ===
+      "completed"
+    ) {
+      order.completedAt =
+        now;
+    }
+
+    if (
+      nextStatus ===
+      "cancelled"
+    ) {
+      order.cancelledAt =
+        now;
+
+      order.cancellationReason =
+        cancellationReason;
+    }
+
+    // ----------------------------------------------------------
     // SAVE
-    // ==========================================================
+    // ----------------------------------------------------------
 
     await order.save();
 
-    return Response.json({
-      success: true,
+    return successResponse({
       message:
-        "Order updated successfully.",
+        "Order status updated successfully.",
+
       order:
-        serializeOrder(order),
+        serializeOrder(
+          order
+        ),
     });
   } catch (error) {
     console.error(
-      "PATCH /api/admin/orders/[id] error:",
+      "PATCH /api/admin/orders/[orderNumber] error:",
       error
     );
 
-    return Response.json(
-      {
-        success: false,
-        error:
-          "Unable to update order.",
-      },
-      {
-        status: 500,
-      }
+    // ----------------------------------------------------------
+    // MONGOOSE VALIDATION
+    // ----------------------------------------------------------
+
+    if (
+      error?.name ===
+      "ValidationError"
+    ) {
+      return errorResponse(
+        "Order validation failed.",
+        400
+      );
+    }
+
+    return errorResponse(
+      "Unable to update order.",
+      500
     );
   }
 }
