@@ -1,4 +1,7 @@
-import { connectDB } from "@/lib/mongodb";
+import {
+  connectDB,
+} from "@/lib/mongodb";
+
 import Order from "@/models/Order";
 
 import {
@@ -40,19 +43,17 @@ function errorResponse(
 }
 
 // ============================================================
-// IST DATE HELPERS
+// INDIA DAY RANGE
 // ============================================================
 
 function getIndiaDayRange() {
-  const now =
-    new Date();
+  const now = new Date();
 
   const indiaDate =
     new Intl.DateTimeFormat(
       "en-CA",
       {
-        timeZone:
-          "Asia/Kolkata",
+        timeZone: "Asia/Kolkata",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -63,10 +64,9 @@ function getIndiaDayRange() {
     year,
     month,
     day,
-  ] =
-    indiaDate
-      .split("-")
-      .map(Number);
+  ] = indiaDate
+    .split("-")
+    .map(Number);
 
   const start =
     new Date(
@@ -104,20 +104,15 @@ function getIndiaDayRange() {
 // ============================================================
 
 function getItemCount(items) {
-  if (
-    !Array.isArray(items)
-  ) {
+  if (!Array.isArray(items)) {
     return 0;
   }
 
   return items.reduce(
-    (
-      total,
-      item
-    ) =>
+    (total, item) =>
       total +
       Number(
-        item.quantity || 0
+        item?.quantity || 0
       ),
     0
   );
@@ -153,8 +148,7 @@ export async function GET() {
     const {
       start,
       end,
-    } =
-      getIndiaDayRange();
+    } = getIndiaDayRange();
 
     const todayFilter = {
       createdAt: {
@@ -176,15 +170,20 @@ export async function GET() {
 
         {
           $facet: {
-            // ------------------------------------------------
+            // ==================================================
             // PAID REVENUE
-            // ------------------------------------------------
+            // ==================================================
 
             revenue: [
               {
                 $match: {
-                  paymentStatus:
+                  "payment.status":
                     "paid",
+
+                  status: {
+                    $ne:
+                      "cancelled",
+                  },
                 },
               },
 
@@ -193,15 +192,18 @@ export async function GET() {
                   _id: null,
 
                   revenue: {
-                    $sum: "$total",
+                    $sum:
+                      "$total",
                   },
 
                   subtotal: {
-                    $sum: "$subtotal",
+                    $sum:
+                      "$subtotal",
                   },
 
                   tax: {
-                    $sum: "$taxAmount",
+                    $sum:
+                      "$taxAmount",
                   },
 
                   orders: {
@@ -214,7 +216,8 @@ export async function GET() {
                         input:
                           "$items",
 
-                        initialValue: 0,
+                        initialValue:
+                          0,
 
                         in: {
                           $add: [
@@ -235,9 +238,9 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
+            // ==================================================
             // UNIQUE CUSTOMERS
-            // ------------------------------------------------
+            // ==================================================
 
             customers: [
               {
@@ -262,9 +265,9 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
+            // ==================================================
             // ACTIVE TABLES
-            // ------------------------------------------------
+            // ==================================================
 
             tables: [
               {
@@ -272,6 +275,7 @@ export async function GET() {
                   status: {
                     $nin: [
                       "cancelled",
+                      "completed",
                     ],
                   },
                 },
@@ -290,9 +294,9 @@ export async function GET() {
               },
             ],
 
-            // ------------------------------------------------
+            // ==================================================
             // ORDER STATUS COUNTS
-            // ------------------------------------------------
+            // ==================================================
 
             statuses: [
               {
@@ -311,7 +315,7 @@ export async function GET() {
       ]);
 
     // ========================================================
-    // 5. EXTRACT DATA
+    // 5. EXTRACT SUMMARY DATA
     // ========================================================
 
     const summary =
@@ -330,7 +334,48 @@ export async function GET() {
       {};
 
     // ========================================================
-    // 6. STATUS COUNTS
+    // 6. REVENUE CALCULATIONS
+    // ========================================================
+
+    const totalRevenue =
+      Number(
+        revenueData.revenue || 0
+      );
+
+    const totalSubtotal =
+      Number(
+        revenueData.subtotal || 0
+      );
+
+    const totalTax =
+      Number(
+        revenueData.tax || 0
+      );
+
+    const totalPaidOrders =
+      Number(
+        revenueData.orders || 0
+      );
+
+    const totalItemsSold =
+      Number(
+        revenueData.items || 0
+      );
+
+    const averageOrderValue =
+      totalPaidOrders > 0
+        ? Math.round(
+            (
+              totalRevenue /
+                totalPaidOrders +
+              Number.EPSILON
+            ) *
+              100
+          ) / 100
+        : 0;
+
+    // ========================================================
+    // 7. STATUS COUNTS
     // ========================================================
 
     const statusCounts = {
@@ -339,6 +384,7 @@ export async function GET() {
       preparing: 0,
       ready: 0,
       served: 0,
+      completed: 0,
       cancelled: 0,
     };
 
@@ -362,7 +408,119 @@ export async function GET() {
     }
 
     // ========================================================
-    // 7. RECENT ORDERS
+    // 8. BILL REQUESTS
+    // ========================================================
+
+    const billRequestsResult =
+      await Order.aggregate([
+        {
+          $match: {
+            "bill.status": {
+              $in: [
+                "requested",
+                "generated",
+                "paid",
+              ],
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id: {
+              status:
+                "$bill.status",
+            },
+
+            count: {
+              $sum: 1,
+            },
+
+            amount: {
+              $sum:
+                "$total",
+            },
+          },
+        },
+      ]);
+
+    const billRequests = {
+      requested: 0,
+      requestedAmount: 0,
+
+      generated: 0,
+      generatedAmount: 0,
+
+      paid: 0,
+      paidAmount: 0,
+
+      total: 0,
+      totalAmount: 0,
+    };
+
+    for (
+      const item of
+        billRequestsResult
+    ) {
+      const status =
+        item._id?.status;
+
+      const count =
+        Number(
+          item.count || 0
+        );
+
+      const amount =
+        Number(
+          item.amount || 0
+        );
+
+      if (
+        status ===
+        "requested"
+      ) {
+        billRequests.requested =
+          count;
+
+        billRequests.requestedAmount =
+          amount;
+      }
+
+      if (
+        status ===
+        "generated"
+      ) {
+        billRequests.generated =
+          count;
+
+        billRequests.generatedAmount =
+          amount;
+      }
+
+      if (
+        status ===
+        "paid"
+      ) {
+        billRequests.paid =
+          count;
+
+        billRequests.paidAmount =
+          amount;
+      }
+    }
+
+    billRequests.total =
+      billRequests.requested +
+      billRequests.generated +
+      billRequests.paid;
+
+    billRequests.totalAmount =
+      billRequests.requestedAmount +
+      billRequests.generatedAmount +
+      billRequests.paidAmount;
+
+    // ========================================================
+    // 9. RECENT ORDERS
     // ========================================================
 
     const recentOrders =
@@ -378,8 +536,8 @@ export async function GET() {
             "customer",
             "total",
             "status",
-            "paymentStatus",
-            "paymentMethod",
+            "payment",
+            "bill",
             "createdAt",
             "items",
           ].join(" ")
@@ -387,7 +545,7 @@ export async function GET() {
         .lean();
 
     // ========================================================
-    // 8. POPULAR PRODUCTS TODAY
+    // 10. POPULAR PRODUCTS TODAY
     // ========================================================
 
     const popularProducts =
@@ -442,38 +600,14 @@ export async function GET() {
       ]);
 
     // ========================================================
-    // 9. AVERAGE PAID ORDER VALUE
-    // ========================================================
-
-    const totalOrders =
-      Number(
-        revenueData.orders ||
-          0
-      );
-
-    const totalRevenue =
-      Number(
-        revenueData.revenue ||
-          0
-      );
-
-    const averageOrderValue =
-      totalOrders > 0
-        ? Math.round(
-            (
-              totalRevenue /
-                totalOrders +
-              Number.EPSILON
-            ) *
-              100
-          ) / 100
-        : 0;
-
-    // ========================================================
-    // 10. RESPONSE
+    // 11. RESPONSE
     // ========================================================
 
     return successResponse({
+      // ======================================================
+      // DATE
+      // ======================================================
+
       date: {
         timezone:
           "Asia/Kolkata",
@@ -485,13 +619,43 @@ export async function GET() {
           end.toISOString(),
       },
 
+      // ======================================================
+      // DEDICATED REVENUE SECTION
+      // ======================================================
+
+      revenue: {
+        today:
+          totalRevenue,
+
+        subtotal:
+          totalSubtotal,
+
+        tax:
+          totalTax,
+
+        paidOrders:
+          totalPaidOrders,
+
+        itemsSold:
+          totalItemsSold,
+
+        averageOrderValue:
+          averageOrderValue,
+
+        currency:
+          "INR",
+      },
+
+      // ======================================================
+      // OVERVIEW
+      // ======================================================
+
       overview: {
         revenue:
           totalRevenue,
 
-        // Paid orders
         orders:
-          totalOrders,
+          totalPaidOrders,
 
         customers:
           Number(
@@ -500,10 +664,7 @@ export async function GET() {
           ),
 
         itemsSold:
-          Number(
-            revenueData.items ||
-              0
-          ),
+          totalItemsSold,
 
         activeTables:
           Number(
@@ -511,10 +672,25 @@ export async function GET() {
               0
           ),
 
-        averageOrderValue,
+        averageOrderValue:
+          averageOrderValue,
       },
 
+      // ======================================================
+      // ORDER STATUS
+      // ======================================================
+
       statusCounts,
+
+      // ======================================================
+      // BILL REQUESTS
+      // ======================================================
+
+      billRequests,
+
+      // ======================================================
+      // RECENT ORDERS
+      // ======================================================
 
       recentOrders:
         recentOrders.map(
@@ -541,11 +717,19 @@ export async function GET() {
               order.status,
 
             paymentStatus:
-              order.paymentStatus,
+              order.payment
+                ?.status ||
+              "pending",
 
             paymentMethod:
-              order.paymentMethod ||
+              order.payment
+                ?.method ||
               null,
+
+            billStatus:
+              order.bill
+                ?.status ||
+              "not_requested",
 
             itemCount:
               getItemCount(
@@ -556,6 +740,10 @@ export async function GET() {
               order.createdAt,
           })
         ),
+
+      // ======================================================
+      // POPULAR PRODUCTS
+      // ======================================================
 
       popularProducts:
         popularProducts.map(
@@ -584,9 +772,13 @@ export async function GET() {
     });
   } catch (error) {
     console.error(
-      "GET /api/admin/ error:",
+      "GET /api/admin/dashboard error:",
       error
     );
+
+    // ========================================================
+    // DATABASE ERROR
+    // ========================================================
 
     if (
       error?.name ===
@@ -599,6 +791,10 @@ export async function GET() {
         503
       );
     }
+
+    // ========================================================
+    // GENERIC ERROR
+    // ========================================================
 
     return errorResponse(
       "Unable to load dashboard data.",

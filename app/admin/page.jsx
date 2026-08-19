@@ -4,6 +4,8 @@ import Link from "next/link";
 
 import {
   ArrowUpRight,
+  BadgeIndianRupee,
+  CheckCircle2,
   Clock3,
   Loader2,
   Package,
@@ -15,11 +17,7 @@ import {
   Utensils,
 } from "lucide-react";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // ============================================================
 // STATUS CONFIG
@@ -28,38 +26,37 @@ import {
 const STATUS_CONFIG = {
   pending: {
     label: "Pending",
-    className:
-      "bg-[#FFF7E8] text-[#9A6700]",
+    className: "bg-[#FFF7E8] text-[#9A6700]",
   },
 
   confirmed: {
     label: "Confirmed",
-    className:
-      "bg-blue-50 text-blue-700",
+    className: "bg-blue-50 text-blue-700",
   },
 
   preparing: {
     label: "Preparing",
-    className:
-      "bg-amber-50 text-amber-700",
+    className: "bg-amber-50 text-amber-700",
   },
 
   ready: {
     label: "Ready",
-    className:
-      "bg-green-50 text-green-700",
+    className: "bg-green-50 text-green-700",
   },
 
   served: {
     label: "Served",
-    className:
-      "bg-gray-100 text-gray-700",
+    className: "bg-gray-100 text-gray-700",
+  },
+
+  completed: {
+    label: "Completed",
+    className: "bg-emerald-50 text-emerald-700",
   },
 
   cancelled: {
     label: "Cancelled",
-    className:
-      "bg-red-50 text-red-700",
+    className: "bg-red-50 text-red-700",
   },
 };
 
@@ -68,14 +65,9 @@ const STATUS_CONFIG = {
 // ============================================================
 
 function formatPrice(value) {
-  return `₹${Number(
-    value || 0
-  ).toLocaleString(
-    "en-IN",
-    {
-      maximumFractionDigits: 0,
-    }
-  )}`;
+  return `₹${Number(value || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
+  })}`;
 }
 
 function formatDate(value) {
@@ -84,17 +76,12 @@ function formatDate(value) {
   }
 
   try {
-    return new Date(
-      value
-    ).toLocaleString(
-      "en-IN",
-      {
-        day: "numeric",
-        month: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      }
-    );
+    return new Date(value).toLocaleString("en-IN", {
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   } catch {
     return "—";
   }
@@ -105,110 +92,81 @@ function formatDate(value) {
 // ============================================================
 
 export default function AdminDashboardPage() {
-  const [
-    dashboard,
-    setDashboard,
-  ] = useState(null);
+  const [dashboard, setDashboard] = useState(null);
 
-  const [
-    isLoading,
-    setIsLoading,
-  ] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [
-    isRefreshing,
-    setIsRefreshing,
-  ] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [
-    error,
-    setError,
-  ] = useState("");
+  const [error, setError] = useState("");
 
   // ==========================================================
-  // FETCH DASHBOARD
+  // LOAD DASHBOARD
   // ==========================================================
 
-  const loadDashboard =
-    useCallback(
-      async ({
-        silent = false,
-      } = {}) => {
-        try {
-          if (silent) {
-            setIsRefreshing(true);
-          } else {
-            setIsLoading(true);
-          }
+  const loadDashboard = useCallback(async ({ silent = false } = {}) => {
+    try {
+      if (silent) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
 
-          setError("");
+      setError("");
 
-          const response =
-            await fetch(
-              "/api/admin/dashboard",
-              {
-                method: "GET",
-                credentials:
-                  "include",
-                cache: "no-store",
-              }
-            );
+      const response = await fetch("/api/admin/dashboard", {
+        method: "GET",
 
-          let data = {};
+        credentials: "include",
 
-          try {
-            data =
-              await response.json();
-          } catch {
-            data = {};
-          }
+        cache: "no-store",
+      });
 
-          if (
-            response.status ===
-            401
-          ) {
-            window.location.href =
-              "/admin/login";
-            return;
-          }
+      let data = {};
 
-          if (
-            response.status ===
-            403
-          ) {
-            setError(
-              data.error ||
-                "You do not have permission to access the dashboard."
-            );
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
 
-            return;
-          }
+      // ====================================================
+      // NOT AUTHENTICATED
+      // ====================================================
 
-          if (!response.ok) {
-            throw new Error(
-              data.error ||
-                "Unable to load dashboard."
-            );
-          }
+      if (response.status === 401) {
+        window.location.href = "/admin/cafeadmin/login";
 
-          setDashboard(data);
-        } catch (error) {
-          console.error(
-            "Dashboard error:",
-            error
-          );
+        return;
+      }
 
-          setError(
-            error.message ||
-              "Unable to load dashboard."
-          );
-        } finally {
-          setIsLoading(false);
-          setIsRefreshing(false);
-        }
-      },
-      []
-    );
+      // ====================================================
+      // FORBIDDEN
+      // ====================================================
+
+      if (response.status === 403) {
+        setError(
+          data.error || "You do not have permission to access the dashboard.",
+        );
+
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to load dashboard.");
+      }
+
+      setDashboard(data);
+    } catch (error) {
+      console.error("Dashboard error:", error);
+
+      setError(error?.message || "Unable to load dashboard.");
+    } finally {
+      setIsLoading(false);
+
+      setIsRefreshing(false);
+    }
+  }, []);
 
   // ==========================================================
   // INITIAL LOAD
@@ -223,41 +181,73 @@ export default function AdminDashboardPage() {
   // ==========================================================
 
   useEffect(() => {
-    const interval =
-      setInterval(() => {
-        loadDashboard({
-          silent: true,
-        });
-      }, 30000);
+    const interval = setInterval(() => {
+      loadDashboard({
+        silent: true,
+      });
+    }, 30000);
 
-    return () =>
-      clearInterval(
-        interval
-      );
+    return () => clearInterval(interval);
   }, [loadDashboard]);
 
   // ==========================================================
   // LOADING
   // ==========================================================
 
-  if (
-    isLoading &&
-    !dashboard
-  ) {
+  if (isLoading && !dashboard) {
     return (
       <main className="min-h-screen bg-[#F5F0E8]">
-        <div className="mx-auto max-w-375 px-4 py-8 sm:px-6 lg:px-8">
-          <div className="flex min-h-[60vh] items-center justify-center">
-            <div className="text-center">
-              <Loader2
-                size={30}
-                className="mx-auto animate-spin text-[#B83A2E]"
-              />
+        <div className="flex min-h-screen items-center justify-center px-4">
+          <div className="text-center">
+            <Loader2
+              size={30}
+              className="mx-auto animate-spin text-[#B83A2E]"
+            />
 
-              <p className="mt-4 text-sm text-[#6B6258]">
-                Loading restaurant
-                dashboard...
-              </p>
+            <p className="mt-4 text-sm text-[#6B6258]">
+              Loading restaurant dashboard...
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // ==========================================================
+  // ERROR
+  // ==========================================================
+
+  if (error && !dashboard) {
+    return (
+      <main className="min-h-screen bg-[#F5F0E8]">
+        <div className="flex min-h-screen items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-8 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-2xl">
+              ⚠️
+            </div>
+
+            <h1 className="mt-5 text-2xl font-semibold">
+              Dashboard unavailable
+            </h1>
+
+            <p className="mt-2 text-sm leading-6 text-[#6B6258]">{error}</p>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => loadDashboard()}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#171513] px-5 text-xs font-semibold text-white"
+              >
+                <RefreshCw size={15} />
+                Try Again
+              </button>
+
+              <Link
+                href="/admin/cafeadmin/login"
+                className="flex h-11 flex-1 items-center justify-center rounded-xl border border-[#DED6C9] bg-white px-5 text-xs font-semibold text-[#171513]"
+              >
+                Admin Login
+              </Link>
             </div>
           </div>
         </div>
@@ -266,99 +256,56 @@ export default function AdminDashboardPage() {
   }
 
   // ==========================================================
-  // AUTHORIZATION ERROR
+  // DATA
   // ==========================================================
 
-  if (
-    error &&
-    !dashboard
-  ) {
-    return (
-      <main className="min-h-screen bg-[#F5F0E8]">
-        <div className="mx-auto max-w-175 px-4 py-20 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-2xl">
-            ⚠️
-          </div>
+  const overview = dashboard?.overview || {};
 
-          <h1 className="mt-5 text-2xl font-semibold">
-            Dashboard unavailable
-          </h1>
+  const counts = dashboard?.statusCounts || {};
 
-          <p className="mt-2 text-sm text-[#6B6258]">
-            {error}
-          </p>
+  const recentOrders = dashboard?.recentOrders || [];
 
-          <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() =>
-                loadDashboard()
-              }
-              className="inline-flex items-center gap-2 rounded-xl bg-[#171513] px-5 py-3 text-sm font-semibold text-white"
-            >
-              <RefreshCw
-                size={15}
-              />
+  const popularProducts = dashboard?.popularProducts || [];
 
-              Try Again
-            </button>
+  const currentUser = dashboard?.currentUser || {};
 
-            <Link
-              href="/admin/orders"
-              className="inline-flex items-center gap-2 rounded-xl border border-[#DED6C9] bg-white px-5 py-3 text-sm font-semibold text-[#171513]"
-            >
-              Go to Orders
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const billRequests = dashboard?.billRequests || {
+    requested: 0,
+    requestedAmount: 0,
+    generated: 0,
+    generatedAmount: 0,
+    paid: 0,
+    paidAmount: 0,
+  };
 
-  const overview =
-    dashboard?.overview ||
-    {};
+  const role = String(currentUser.role || "").toLowerCase();
 
-  const counts =
-    dashboard?.statusCounts ||
-    {};
+  const isAdmin = role === "admin";
 
-  const recentOrders =
-    dashboard?.recentOrders ||
-    [];
+  const isOwner = role === "owner";
 
-  const popularProducts =
-    dashboard?.popularProducts ||
-    {};
+  const canViewFinancials = isAdmin || isOwner;
+
+  const canManageTables = isAdmin || isOwner;
+
+  const canViewCustomers = isAdmin || isOwner;
 
   // ==========================================================
-  // IMPORTANT
-  // ==========================================================
-  //
-  // Keep the remainder of your existing dashboard JSX
-  // from the uploaded file here.
-  //
-  // It already contains:
-  //
-  // - Today's Revenue
-  // - Today's Orders
-  // - Customers
-  // - Active Tables
-  // - Kitchen Status
-  // - Recent Orders
-  // - Popular Today
-  // - Quick Actions
-  //
+  // RENDER
   // ==========================================================
 
   return (
     <main className="min-h-screen bg-[#F5F0E8]">
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
       <div className="border-b border-[#E5DED2]">
-        <div className="mx-auto max-w-375 px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+        <div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#B83A2E]">
-                Restaurant Overview
+                Restaurant Administration
               </p>
 
               <h1 className="mt-2 text-3xl font-semibold tracking-tighter sm:text-4xl">
@@ -366,103 +313,148 @@ export default function AdminDashboardPage() {
               </h1>
 
               <p className="mt-2 text-sm text-[#6B6258]">
-                Today's Ramen Cafe
-                performance and
-                operations.
+                Welcome back,{" "}
+                <span className="font-semibold text-[#171513]">
+                  {currentUser.name || "Staff"}
+                </span>
+                . Monitor today's restaurant operations.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                loadDashboard({
-                  silent: true,
-                })
-              }
-              disabled={
-                isRefreshing
-              }
-              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-xs font-semibold transition hover:bg-white disabled:opacity-50"
-            >
-              <RefreshCw
-                size={15}
-                className={
-                  isRefreshing
-                    ? "animate-spin"
-                    : ""
-                }
-              />
+            <div className="flex items-center gap-3">
+              <span className="rounded-full border border-[#DED6C9] bg-[#FFFDF8] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#6B6258]">
+                {role || "staff"}
+              </span>
 
-              Refresh
-            </button>
+              <button
+                type="button"
+                onClick={() =>
+                  loadDashboard({
+                    silent: true,
+                  })
+                }
+                disabled={isRefreshing}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-[#DED6C9] bg-[#FFFDF8] px-4 text-xs font-semibold transition hover:bg-white disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={15}
+                  className={isRefreshing ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-375 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      {/* =====================================================
+          CONTENT
+      ===================================================== */}
+
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {error && (
           <div className="mb-6 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-xs text-amber-800">
-            Dashboard refresh failed:{" "}
-            {error}
+            Dashboard refresh failed: {error}
           </div>
         )}
 
+        {/* ===================================================
+            OVERVIEW
+        =================================================== */}
+
         <section>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <DashboardStat
-              label="Today's Revenue"
-              value={formatPrice(
-                overview.revenue
-              )}
-              change={`${formatPrice(
-                overview.averageOrderValue
-              )} average order`}
-              icon={
-                <TrendingUp
-                  size={19}
-                />
-              }
-            />
+            {canViewFinancials && (
+              <DashboardStat
+                label="Today's Revenue"
+                value={formatPrice(overview.revenue)}
+                change={`${formatPrice(
+                  overview.averageOrderValue,
+                )} average order`}
+                icon={<TrendingUp size={19} />}
+              />
+            )}
 
             <DashboardStat
               label="Today's Orders"
-              value={
-                overview.orders ||
-                0
-              }
+              value={overview.orders || 0}
               change={`${overview.itemsSold || 0} items sold`}
-              icon={
-                <ShoppingBag
-                  size={19}
-                />
-              }
+              icon={<ShoppingBag size={19} />}
             />
 
-            <DashboardStat
-              label="Customers"
-              value={
-                overview.customers ||
-                0
-              }
-              change="Unique customers today"
-              icon={
-                <Users size={19} />
-              }
+            {canViewCustomers && (
+              <DashboardStat
+                label="Customers"
+                value={overview.customers || 0}
+                change="Unique customers today"
+                icon={<Users size={19} />}
+              />
+            )}
+
+            {canManageTables && (
+              <DashboardStat
+                label="Active Tables"
+                value={overview.activeTables || 0}
+                change="Tables used today"
+                icon={<Store size={19} />}
+              />
+            )}
+          </div>
+        </section>
+
+        {/* ===================================================
+            BILL REQUESTS
+        =================================================== */}
+
+        <section className="mt-8">
+          <div className="mb-4 flex items-end justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#B83A2E]">
+                Priority
+              </p>
+
+              <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em]">
+                Bill Requests
+              </h2>
+            </div>
+
+            <Link
+              href="/admin/bills"
+              className="flex items-center gap-1 text-xs font-semibold text-[#B83A2E]"
+            >
+              Manage Bills
+              <ArrowUpRight size={14} />
+            </Link>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <BillStat
+              label="Requested"
+              value={billRequests.requested}
+              amount={billRequests.requestedAmount}
+              icon={<Clock3 size={19} />}
+              urgent={billRequests.requested > 0}
             />
 
-            <DashboardStat
-              label="Active Tables"
-              value={
-                overview.activeTables ||
-                0
-              }
-              change="Tables used today"
-              icon={
-                <Store size={19} />
-              }
+            <BillStat
+              label="Generated"
+              value={billRequests.generated}
+              amount={billRequests.generatedAmount}
+              icon={<BadgeIndianRupee size={19} />}
+            />
+
+            <BillStat
+              label="Paid"
+              value={billRequests.paid}
+              amount={billRequests.paidAmount}
+              icon={<CheckCircle2 size={19} />}
             />
           </div>
         </section>
+
+        {/* ===================================================
+            KITCHEN STATUS
+        =================================================== */}
 
         <section className="mt-8">
           <div className="mb-4 flex items-end justify-between">
@@ -481,63 +473,52 @@ export default function AdminDashboardPage() {
               className="flex items-center gap-1 text-xs font-semibold text-[#B83A2E]"
             >
               View Orders
-
-              <ArrowUpRight
-                size={14}
-              />
+              <ArrowUpRight size={14} />
             </Link>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <KitchenStatus
               label="Pending"
-              value={
-                counts.pending ||
-                0
-              }
-              icon={
-                <Clock3 size={18} />
-              }
+              value={counts.pending || 0}
+              icon={<Clock3 size={18} />}
             />
 
             <KitchenStatus
               label="Confirmed"
-              value={
-                counts.confirmed ||
-                0
-              }
-              icon={
-                <ShoppingBag
-                  size={18}
-                />
-              }
+              value={counts.confirmed || 0}
+              icon={<ShoppingBag size={18} />}
             />
 
             <KitchenStatus
               label="Preparing"
-              value={
-                counts.preparing ||
-                0
-              }
-              icon={
-                <Utensils
-                  size={18}
-                />
-              }
+              value={counts.preparing || 0}
+              icon={<Utensils size={18} />}
             />
 
             <KitchenStatus
               label="Ready"
-              value={
-                counts.ready ||
-                0
-              }
-              icon={
-                <Package size={18} />
-              }
+              value={counts.ready || 0}
+              icon={<Package size={18} />}
+            />
+
+            <KitchenStatus
+              label="Served"
+              value={counts.served || 0}
+              icon={<CheckCircle2 size={18} />}
+            />
+
+            <KitchenStatus
+              label="Completed"
+              value={counts.completed || 0}
+              icon={<CheckCircle2 size={18} />}
             />
           </div>
         </section>
+
+        {/* ===================================================
+            RECENT ORDERS
+        =================================================== */}
 
         <section className="mt-8">
           <div className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8]">
@@ -547,9 +528,7 @@ export default function AdminDashboardPage() {
                   Activity
                 </p>
 
-                <h2 className="mt-1 text-lg font-semibold">
-                  Recent Orders
-                </h2>
+                <h2 className="mt-1 text-lg font-semibold">Recent Orders</h2>
               </div>
 
               <Link
@@ -560,97 +539,120 @@ export default function AdminDashboardPage() {
               </Link>
             </div>
 
-            {recentOrders.length ===
-            0 ? (
+            {recentOrders.length === 0 ? (
               <div className="p-10 text-center">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F5F0E8]">
                   🍜
                 </div>
 
-                <p className="mt-4 text-sm font-semibold">
-                  No orders yet
-                </p>
+                <p className="mt-4 text-sm font-semibold">No orders yet</p>
 
                 <p className="mt-1 text-xs text-[#6B6258]">
-                  New restaurant
-                  orders will appear
-                  here.
+                  New restaurant orders will appear here.
                 </p>
               </div>
             ) : (
               <div className="divide-y divide-[#E8E1D6]">
-                {recentOrders.map(
-                  (order) => (
-                    <Link
-                      key={
-                        order.id
-                      }
-                      href={`/admin/orders/${encodeURIComponent(
-                        order.orderNumber
-                      )}`}
-                      className="flex items-center justify-between gap-4 p-5 transition hover:bg-[#F9F6F0]"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold">
-                            #
-                            {
-                              order.orderNumber
-                            }
-                          </p>
-
-                          <StatusBadge
-                            status={
-                              order.status
-                            }
-                          />
-                        </div>
-
-                        <p className="mt-1 text-xs text-[#6B6258]">
-                          Table{" "}
-                          {
-                            order.tableId
-                          }{" "}
-                          •{" "}
-                          {
-                            order.itemCount
-                          }{" "}
-                          items
+                {recentOrders.map((order) => (
+                  <Link
+                    key={order.id}
+                    href={`/admin/orders/${encodeURIComponent(
+                      order.orderNumber,
+                    )}`}
+                    className="flex items-center justify-between gap-4 p-5 transition hover:bg-[#F9F6F0]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-semibold">
+                          #{order.orderNumber}
                         </p>
 
-                        <p className="mt-1 text-[10px] text-[#9B9186]">
-                          {
-                            order
-                              .customer
-                              ?.name ||
-                            "Customer"
-                          }{" "}
-                          •{" "}
-                          {formatDate(
-                            order.createdAt
-                          )}
-                        </p>
+                        <StatusBadge status={order.status} />
+
+                        {order.billStatus === "requested" && (
+                          <span className="rounded-full bg-red-50 px-2 py-1 text-[8px] font-semibold text-[#B83A2E]">
+                            BILL REQUESTED
+                          </span>
+                        )}
+
+                        {order.paymentStatus === "paid" && (
+                          <span className="rounded-full bg-green-50 px-2 py-1 text-[8px] font-semibold text-green-700">
+                            PAID
+                          </span>
+                        )}
                       </div>
 
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold">
-                          {formatPrice(
-                            order.total
-                          )}
-                        </p>
+                      <p className="mt-1 text-xs text-[#6B6258]">
+                        Table {order.tableId} • {order.itemCount} items
+                      </p>
 
-                        <ArrowUpRight
-                          size={14}
-                          className="ml-auto mt-2 text-[#9B9186]"
-                        />
-                      </div>
-                    </Link>
-                  )
-                )}
+                      <p className="mt-1 text-[10px] text-[#9B9186]">
+                        {order.customer?.name || "Customer"} •{" "}
+                        {formatDate(order.createdAt)}
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold">
+                        {formatPrice(order.total)}
+                      </p>
+
+                      <ArrowUpRight
+                        size={14}
+                        className="ml-auto mt-2 text-[#9B9186]"
+                      />
+                    </div>
+                  </Link>
+                ))}
               </div>
             )}
           </div>
         </section>
+
+        {/* ===================================================
+            POPULAR PRODUCTS
+        =================================================== */}
+
+        {popularProducts.length > 0 && (
+          <section className="mt-8">
+            <div className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#B83A2E]">
+                  Today
+                </p>
+
+                <h2 className="mt-1 text-lg font-semibold">Popular Products</h2>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {popularProducts.map((product) => (
+                  <div
+                    key={product.productId || product.name}
+                    className="rounded-2xl bg-[#F5F0E8] p-4"
+                  >
+                    <p className="truncate text-sm font-semibold">
+                      {product.name}
+                    </p>
+
+                    <p className="mt-2 text-xs text-[#6B6258]">
+                      {product.quantity} sold
+                    </p>
+
+                    {canViewFinancials && (
+                      <p className="mt-1 text-xs font-semibold text-[#B83A2E]">
+                        {formatPrice(product.revenue)}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ===================================================
+            QUICK ACTIONS
+        =================================================== */}
 
         <section className="mt-8">
           <div className="mb-4">
@@ -666,34 +668,51 @@ export default function AdminDashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <QuickAction
               title="Manage Orders"
-              description="Accept, prepare, ready and serve restaurant orders."
+              description="Accept, prepare, ready, serve and complete restaurant orders."
               href="/admin/orders"
-              icon={
-                <ShoppingBag
-                  size={19}
-                />
-              }
+              icon={<ShoppingBag size={19} />}
             />
 
             <QuickAction
               title="Manage Menu"
               description="Add products, update prices and control availability."
               href="/admin/products"
-              icon={
-                <Package
-                  size={19}
-                />
-              }
+              icon={<Package size={19} />}
             />
 
             <QuickAction
-              title="Manage Tables"
-              description="Configure tables and generate QR codes."
-              href="/admin/tables"
-              icon={
-                <Store size={19} />
-              }
+              title="Bill Requests"
+              description="View requested bills, collect payment and complete receipts."
+              href="/admin/bills"
+              icon={<BadgeIndianRupee size={19} />}
             />
+
+            {canManageTables && (
+              <QuickAction
+                title="Manage Tables"
+                description="Configure tables and generate QR codes."
+                href="/admin/tables"
+                icon={<Store size={19} />}
+              />
+            )}
+
+            {canViewCustomers && (
+              <QuickAction
+                title="Customers"
+                description="View customer accounts and restaurant order activity."
+                href="/admin/users"
+                icon={<Users size={19} />}
+              />
+            )}
+
+            {isAdmin && (
+              <QuickAction
+                title="Administration"
+                description="Manage staff, owners, roles and restaurant settings."
+                href="/admin/settings"
+                icon={<Users size={19} />}
+              />
+            )}
           </div>
         </section>
       </div>
@@ -705,12 +724,7 @@ export default function AdminDashboardPage() {
 // DASHBOARD STAT
 // ============================================================
 
-function DashboardStat({
-  label,
-  value,
-  change,
-  icon,
-}) {
+function DashboardStat({ label, value, change, icon }) {
   return (
     <div className="rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5 sm:p-6">
       <div className="flex items-center justify-between">
@@ -723,16 +737,48 @@ function DashboardStat({
         </span>
       </div>
 
-      <p className="mt-5 text-xs text-[#6B6258]">
-        {label}
-      </p>
+      <p className="mt-5 text-xs text-[#6B6258]">{label}</p>
 
-      <p className="mt-1 text-3xl font-semibold tracking-tighter">
-        {value}
-      </p>
+      <p className="mt-1 text-3xl font-semibold tracking-tighter">{value}</p>
+
+      <p className="mt-2 text-[10px] text-[#9B9186]">{change}</p>
+    </div>
+  );
+}
+
+// ============================================================
+// BILL STAT
+// ============================================================
+
+function BillStat({ label, value, amount, icon, urgent = false }) {
+  return (
+    <div
+      className={`rounded-3xl border bg-[#FFFDF8] p-5 sm:p-6 ${
+        urgent ? "border-[#E9B9B2]" : "border-[#E5DED2]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-2xl ${
+            urgent ? "bg-red-50 text-[#B83A2E]" : "bg-[#F5F0E8] text-[#B83A2E]"
+          }`}
+        >
+          {icon}
+        </div>
+
+        {urgent && (
+          <span className="rounded-full bg-red-50 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#B83A2E]">
+            Action Required
+          </span>
+        )}
+      </div>
+
+      <p className="mt-5 text-xs text-[#6B6258]">{label}</p>
+
+      <p className="mt-1 text-3xl font-semibold tracking-tighter">{value}</p>
 
       <p className="mt-2 text-[10px] text-[#9B9186]">
-        {change}
+        {formatPrice(amount)} total
       </p>
     </div>
   );
@@ -742,11 +788,7 @@ function DashboardStat({
 // KITCHEN STATUS
 // ============================================================
 
-function KitchenStatus({
-  label,
-  value,
-  icon,
-}) {
+function KitchenStatus({ label, value, icon }) {
   return (
     <div className="flex items-center gap-4 rounded-3xl border border-[#E5DED2] bg-[#FFFDF8] p-5">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0E8] text-[#B83A2E]">
@@ -758,9 +800,7 @@ function KitchenStatus({
           {label}
         </p>
 
-        <p className="mt-1 text-2xl font-semibold">
-          {value}
-        </p>
+        <p className="mt-1 text-2xl font-semibold">{value}</p>
       </div>
     </div>
   );
@@ -770,14 +810,8 @@ function KitchenStatus({
 // STATUS BADGE
 // ============================================================
 
-function StatusBadge({
-  status,
-}) {
-  const config =
-    STATUS_CONFIG[
-      status
-    ] ||
-    STATUS_CONFIG.pending;
+function StatusBadge({ status }) {
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
 
   return (
     <span
@@ -792,12 +826,7 @@ function StatusBadge({
 // QUICK ACTION
 // ============================================================
 
-function QuickAction({
-  title,
-  description,
-  href,
-  icon,
-}) {
+function QuickAction({ title, description, href, icon }) {
   return (
     <Link
       href={href}
@@ -814,13 +843,9 @@ function QuickAction({
         />
       </div>
 
-      <h3 className="mt-6 text-base font-semibold">
-        {title}
-      </h3>
+      <h3 className="mt-6 text-base font-semibold">{title}</h3>
 
-      <p className="mt-2 text-xs leading-5 text-[#6B6258]">
-        {description}
-      </p>
+      <p className="mt-2 text-xs leading-5 text-[#6B6258]">{description}</p>
     </Link>
   );
-      }
+}

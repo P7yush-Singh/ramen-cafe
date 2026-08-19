@@ -11,12 +11,45 @@ import {
   normalizeEmail,
 } from "@/lib/auth-server";
 
+// ============================================================
+// ADMIN ROLES
+// ============================================================
+
+const ADMIN_ROLES = [
+  "admin",
+  "owner",
+  "staff",
+];
+
+// ============================================================
+// POST /api/auth/verify-otp
+// ============================================================
+
 export async function POST(
   request
 ) {
   try {
-    const body =
-      await request.json();
+    // ========================================================
+    // 1. READ REQUEST
+    // ========================================================
+
+    let body;
+
+    try {
+      body =
+        await request.json();
+    } catch {
+      return Response.json(
+        {
+          success: false,
+          error:
+            "Invalid request body.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const email =
       normalizeEmail(
@@ -28,9 +61,19 @@ export async function POST(
         body.otp || ""
       ).trim();
 
+    // Important:
+    // Admin login page sends this as true.
+    const adminOnly =
+      body.adminOnly === true;
+
+    // ========================================================
+    // 2. VALIDATION
+    // ========================================================
+
     if (!email || !otp) {
       return Response.json(
         {
+          success: false,
           error:
             "Email and OTP are required.",
         },
@@ -43,6 +86,7 @@ export async function POST(
     if (!/^\d{6}$/.test(otp)) {
       return Response.json(
         {
+          success: false,
           error:
             "OTP must contain 6 digits.",
         },
@@ -52,7 +96,15 @@ export async function POST(
       );
     }
 
+    // ========================================================
+    // 3. DATABASE
+    // ========================================================
+
     await connectDB();
+
+    // ========================================================
+    // 4. FIND ACTIVE OTP
+    // ========================================================
 
     const otpRecord =
       await Otp.findOne({
@@ -70,6 +122,7 @@ export async function POST(
     if (!otpRecord) {
       return Response.json(
         {
+          success: false,
           error:
             "OTP expired or not found. Please request a new code.",
         },
@@ -79,13 +132,14 @@ export async function POST(
       );
     }
 
-    /*
-     * Maximum 5 attempts.
-     */
+    // ========================================================
+    // 5. MAXIMUM ATTEMPTS
+    // ========================================================
 
     if (
-      otpRecord.attempts >=
-      5
+      Number(
+        otpRecord.attempts || 0
+      ) >= 5
     ) {
       otpRecord.consumed =
         true;
@@ -94,6 +148,7 @@ export async function POST(
 
       return Response.json(
         {
+          success: false,
           error:
             "Too many incorrect attempts. Please request a new code.",
         },
@@ -103,6 +158,10 @@ export async function POST(
       );
     }
 
+    // ========================================================
+    // 6. VERIFY OTP
+    // ========================================================
+
     const incomingHash =
       hashValue(otp);
 
@@ -110,12 +169,16 @@ export async function POST(
       incomingHash !==
       otpRecord.codeHash
     ) {
-      otpRecord.attempts += 1;
+      otpRecord.attempts =
+        Number(
+          otpRecord.attempts || 0
+        ) + 1;
 
       await otpRecord.save();
 
       return Response.json(
         {
+          success: false,
           error:
             "Invalid verification code.",
         },
@@ -125,70 +188,185 @@ export async function POST(
       );
     }
 
-    // =================================================
-    // OTP VALID
-    // =================================================
+    // ========================================================
+    // 7. FIND EXISTING USER
+    // ========================================================
+
+    const user =
+      await User.findOne({
+        email,
+      });
+
+    // ========================================================
+    // 8. ADMIN LOGIN AUTHORIZATION
+    // ========================================================
+
+    if (adminOnly) {
+      // ------------------------------------------------------
+      // Admin account must already exist.
+      // We DO NOT create admin accounts here.
+      // ------------------------------------------------------
+
+      if (!user) {
+        otpRecord.consumed =
+          true;
+
+        await otpRecord.save();
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              "No restaurant staff account exists for this email.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      // ------------------------------------------------------
+      // Check role
+      // ------------------------------------------------------
+
+      const role =
+        String(
+          user.role || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        !ADMIN_ROLES.includes(
+          role
+        )
+      ) {
+        otpRecord.consumed =
+          true;
+
+        await otpRecord.save();
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              "This account does not have restaurant administration access.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      // ------------------------------------------------------
+      // Check active status
+      // ------------------------------------------------------
+
+      if (
+        user.isActive ===
+        false
+      ) {
+        otpRecord.consumed =
+          true;
+
+        await otpRecord.save();
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              "This staff account is inactive. Please contact the administrator.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+    }
+
+    // ========================================================
+    // 9. CONSUME OTP
+    // ========================================================
 
     otpRecord.consumed =
       true;
 
     await otpRecord.save();
 
-    // =================================================
-    // FIND OR CREATE USER
-    // =================================================
+    // ========================================================
+    // 10. NORMAL CUSTOMER LOGIN
+    // ========================================================
+    //
+    // This keeps your existing customer OTP flow working.
+    //
+    // Admin login NEVER creates a user.
+    //
+    // Customer login can still create a customer account.
+    // ========================================================
 
-    let user =
-      await User.findOne({
-        email,
-      });
+    let authenticatedUser =
+      user;
 
-    if (!user) {
-      user = await User.create({
-        email,
+    if (
+      !authenticatedUser
+    ) {
+      authenticatedUser =
+        await User.create({
+          email,
 
-        name: email
-          .split("@")[0]
-          .replace(
-            /[._-]/g,
-            " "
-          ),
+          name: email
+            .split("@")[0]
+            .replace(
+              /[._-]/g,
+              " "
+            ),
 
-        role: "customer",
+          role:
+            "customer",
 
-        isActive: true,
+          isActive:
+            true,
 
-        lastLoginAt:
-          new Date(),
-      });
+          lastLoginAt:
+            new Date(),
+        });
     } else {
-      user.lastLoginAt =
+      authenticatedUser.lastLoginAt =
         new Date();
 
-      await user.save();
+      await authenticatedUser.save();
     }
 
-    // =================================================
-    // CREATE SESSION
-    // =================================================
+    // ========================================================
+    // 11. CREATE SESSION
+    // ========================================================
 
     await createSession(
-      user._id
+      authenticatedUser._id
     );
+
+    // ========================================================
+    // 12. RESPONSE
+    // ========================================================
 
     return Response.json({
       success: true,
 
       user: {
-        id: user._id.toString(),
+        id:
+          authenticatedUser._id.toString(),
 
-        name: user.name,
+        name:
+          authenticatedUser.name,
 
-        email: user.email,
+        email:
+          authenticatedUser.email,
 
-        phone: user.phone,
+        phone:
+          authenticatedUser.phone,
 
-        role: user.role,
+        role:
+          authenticatedUser.role,
       },
     });
   } catch (error) {
@@ -199,6 +377,7 @@ export async function POST(
 
     return Response.json(
       {
+        success: false,
         error:
           "Unable to verify OTP.",
       },
