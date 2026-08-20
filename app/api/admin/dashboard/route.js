@@ -1,18 +1,16 @@
 import { connectDB } from "@/lib/mongodb";
+
+import { getServerUser } from "@/lib/auth-server";
+
 import Order from "@/models/Order";
 
-import {
-  requireDashboardAccess,
-} from "@/lib/admin-auth";
+import { requireDashboardAccess } from "@/lib/admin-auth";
 
 // ============================================================
 // RESPONSE HELPERS
 // ============================================================
 
-function successResponse(
-  data,
-  status = 200
-) {
+function successResponse(data, status = 200) {
   return Response.json(
     {
       success: true,
@@ -20,14 +18,11 @@ function successResponse(
     },
     {
       status,
-    }
+    },
   );
 }
 
-function errorResponse(
-  message,
-  status = 400
-) {
+function errorResponse(message, status = 400) {
   return Response.json(
     {
       success: false,
@@ -35,63 +30,32 @@ function errorResponse(
     },
     {
       status,
-    }
+    },
   );
 }
 
 // ============================================================
-// IST DATE HELPERS
+// INDIA DAY RANGE
 // ============================================================
 
 function getIndiaDayRange() {
-  const now =
-    new Date();
+  const now = new Date();
 
-  const indiaDate =
-    new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        timeZone:
-          "Asia/Kolkata",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }
-    ).format(now);
+  const indiaDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
 
-  const [
-    year,
-    month,
-    day,
-  ] =
-    indiaDate
-      .split("-")
-      .map(Number);
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 
-  const start =
-    new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day,
-        0,
-        0,
-        0
-      ) -
-        5.5 *
-          60 *
-          60 *
-          1000
-    );
+  const [year, month, day] = indiaDate.split("-").map(Number);
 
-  const end =
-    new Date(
-      start.getTime() +
-        24 *
-          60 *
-          60 *
-          1000
-    );
+  const start = new Date(
+    Date.UTC(year, month - 1, day, 0, 0, 0) - 5.5 * 60 * 60 * 1000,
+  );
+
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
   return {
     start,
@@ -100,27 +64,39 @@ function getIndiaDayRange() {
 }
 
 // ============================================================
-// ORDER ITEM COUNT
+// ITEM COUNT
 // ============================================================
 
 function getItemCount(items) {
-  if (
-    !Array.isArray(items)
-  ) {
+  if (!Array.isArray(items)) {
     return 0;
   }
 
-  return items.reduce(
-    (
-      total,
-      item
-    ) =>
-      total +
-      Number(
-        item.quantity || 0
-      ),
-    0
-  );
+  return items.reduce((total, item) => total + Number(item?.quantity || 0), 0);
+}
+
+// ============================================================
+// USER SERIALIZER
+// ============================================================
+
+function serializeCurrentUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user._id ? String(user._id) : null,
+
+    name: user.name || "",
+
+    email: user.email || "",
+
+    phone: user.phone || "",
+
+    role: user.role || "customer",
+
+    isActive: user.isActive !== false,
+  };
 }
 
 // ============================================================
@@ -130,31 +106,46 @@ function getItemCount(items) {
 export async function GET() {
   try {
     // ========================================================
-    // 1. AUTHORIZATION
+    // 1. DASHBOARD AUTH
     // ========================================================
 
-    const auth =
-      await requireDashboardAccess();
+    const auth = await requireDashboardAccess();
 
     if (auth.response) {
       return auth.response;
     }
 
     // ========================================================
-    // 2. DATABASE
+    // 2. CURRENT USER
+    // ========================================================
+
+    const currentUser = await getServerUser();
+
+    if (!currentUser) {
+      return errorResponse("Authentication required.", 401);
+    }
+
+    const role = String(currentUser.role || "")
+      .trim()
+      .toLowerCase();
+
+    const canViewFinancials = role === "admin" || role === "owner";
+
+    const canManageTables = role === "admin" || role === "owner";
+
+    const canViewCustomers = role === "admin" || role === "owner";
+
+    // ========================================================
+    // 3. DATABASE
     // ========================================================
 
     await connectDB();
 
     // ========================================================
-    // 3. TODAY RANGE
+    // 4. TODAY
     // ========================================================
 
-    const {
-      start,
-      end,
-    } =
-      getIndiaDayRange();
+    const { start, end } = getIndiaDayRange();
 
     const todayFilter = {
       createdAt: {
@@ -164,173 +155,170 @@ export async function GET() {
     };
 
     // ========================================================
-    // 4. TODAY SUMMARY
+    // 5. TODAY SUMMARY
     // ========================================================
 
-    const todaySummary =
-      await Order.aggregate([
-        {
-          $match:
-            todayFilter,
-        },
+    const todaySummary = await Order.aggregate([
+      {
+        $match: todayFilter,
+      },
 
-        {
-          $facet: {
-            // ------------------------------------------------
-            // PAID REVENUE
-            // ------------------------------------------------
+      {
+        $facet: {
+          // ------------------------------------------------
+          // PAID REVENUE
+          // ------------------------------------------------
 
-            revenue: [
-              {
-                $match: {
-                  paymentStatus:
-                    "paid",
+          revenue: [
+            {
+              $match: {
+                "payment.status": "paid",
+
+                status: {
+                  $ne: "cancelled",
                 },
               },
+            },
 
-              {
-                $group: {
-                  _id: null,
+            {
+              $group: {
+                _id: null,
 
-                  revenue: {
-                    $sum: "$total",
-                  },
+                revenue: {
+                  $sum: "$total",
+                },
 
-                  subtotal: {
-                    $sum: "$subtotal",
-                  },
+                subtotal: {
+                  $sum: "$subtotal",
+                },
 
-                  tax: {
-                    $sum: "$taxAmount",
-                  },
+                tax: {
+                  $sum: "$taxAmount",
+                },
 
-                  orders: {
-                    $sum: 1,
-                  },
+                orders: {
+                  $sum: 1,
+                },
 
-                  items: {
-                    $sum: {
-                      $reduce: {
-                        input:
-                          "$items",
+                items: {
+                  $sum: {
+                    $reduce: {
+                      input: "$items",
 
-                        initialValue: 0,
+                      initialValue: 0,
 
-                        in: {
-                          $add: [
-                            "$$value",
+                      in: {
+                        $add: [
+                          "$$value",
 
-                            {
-                              $ifNull: [
-                                "$$this.quantity",
-                                0,
-                              ],
-                            },
-                          ],
-                        },
+                          {
+                            $ifNull: ["$$this.quantity", 0],
+                          },
+                        ],
                       },
                     },
                   },
                 },
               },
-            ],
+            },
+          ],
 
-            // ------------------------------------------------
-            // UNIQUE CUSTOMERS
-            // ------------------------------------------------
+          // ------------------------------------------------
+          // CUSTOMERS
+          // ------------------------------------------------
 
-            customers: [
-              {
-                $match: {
-                  status: {
-                    $ne:
-                      "cancelled",
-                  },
+          customers: [
+            {
+              $match: {
+                status: {
+                  $ne: "cancelled",
                 },
               },
+            },
 
-              {
-                $group: {
-                  _id:
-                    "$userId",
+            {
+              $group: {
+                _id: "$userId",
+              },
+            },
+
+            {
+              $count: "count",
+            },
+          ],
+
+          // ------------------------------------------------
+          // ACTIVE TABLES
+          // ------------------------------------------------
+
+          tables: [
+            {
+              $match: {
+                status: {
+                  $nin: ["cancelled", "completed"],
                 },
               },
+            },
 
-              {
-                $count:
-                  "count",
+            {
+              $group: {
+                _id: "$tableId",
               },
-            ],
+            },
 
-            // ------------------------------------------------
-            // ACTIVE TABLES
-            // ------------------------------------------------
+            {
+              $count: "count",
+            },
+          ],
 
-            tables: [
-              {
-                $match: {
-                  status: {
-                    $nin: [
-                      "cancelled",
-                    ],
-                  },
+          // ------------------------------------------------
+          // ORDER STATUS
+          // ------------------------------------------------
+
+          statuses: [
+            {
+              $group: {
+                _id: "$status",
+
+                count: {
+                  $sum: 1,
                 },
               },
-
-              {
-                $group: {
-                  _id:
-                    "$tableId",
-                },
-              },
-
-              {
-                $count:
-                  "count",
-              },
-            ],
-
-            // ------------------------------------------------
-            // ORDER STATUS COUNTS
-            // ------------------------------------------------
-
-            statuses: [
-              {
-                $group: {
-                  _id:
-                    "$status",
-
-                  count: {
-                    $sum: 1,
-                  },
-                },
-              },
-            ],
-          },
+            },
+          ],
         },
-      ]);
+      },
+    ]);
+
+    const summary = todaySummary[0] || {};
+
+    const revenueData = summary.revenue?.[0] || {};
+
+    const customerData = summary.customers?.[0] || {};
+
+    const tableData = summary.tables?.[0] || {};
 
     // ========================================================
-    // 5. EXTRACT DATA
+    // 6. FINANCIAL CALCULATIONS
     // ========================================================
 
-    const summary =
-      todaySummary[0] || {};
+    const totalRevenue = Number(revenueData.revenue || 0);
 
-    const revenueData =
-      summary.revenue?.[0] ||
-      {};
+    const totalSubtotal = Number(revenueData.subtotal || 0);
 
-    const customerData =
-      summary.customers?.[0] ||
-      {};
+    const totalTax = Number(revenueData.tax || 0);
 
-    const tableData =
-      summary.tables?.[0] ||
-      {};
+    const totalPaidOrders = Number(revenueData.orders || 0);
+
+    const totalItemsSold = Number(revenueData.items || 0);
+
+    const averageOrderValue =
+      totalPaidOrders > 0
+        ? Math.round((totalRevenue / totalPaidOrders) * 100) / 100
+        : 0;
 
     // ========================================================
-    // 6. STATUS COUNTS
+    // 7. ORDER STATUS COUNTS
     // ========================================================
 
     const statusCounts = {
@@ -339,270 +327,276 @@ export async function GET() {
       preparing: 0,
       ready: 0,
       served: 0,
+      completed: 0,
       cancelled: 0,
     };
 
-    for (
-      const item of
-        summary.statuses || []
-    ) {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          statusCounts,
-          item._id
-        )
-      ) {
-        statusCounts[
-          item._id
-        ] =
-          Number(
-            item.count || 0
-          );
+    for (const item of summary.statuses || []) {
+      if (Object.prototype.hasOwnProperty.call(statusCounts, item._id)) {
+        statusCounts[item._id] = Number(item.count || 0);
       }
     }
 
     // ========================================================
-    // 7. RECENT ORDERS
+    // 8. BILL REQUESTS
     // ========================================================
 
-    const recentOrders =
-      await Order.find({})
-        .sort({
-          createdAt: -1,
-        })
-        .limit(8)
-        .select(
-          [
-            "orderNumber",
-            "tableId",
-            "customer",
-            "total",
-            "status",
-            "paymentStatus",
-            "paymentMethod",
-            "createdAt",
-            "items",
-          ].join(" ")
-        )
-        .lean();
-
-    // ========================================================
-    // 8. POPULAR PRODUCTS TODAY
-    // ========================================================
-
-    const popularProducts =
-      await Order.aggregate([
-        {
-          $match: {
-            ...todayFilter,
-
-            status: {
-              $ne:
-                "cancelled",
-            },
+    const billRequestsResult = await Order.aggregate([
+      {
+        $match: {
+          "bill.status": {
+            $in: ["requested", "generated", "paid"],
           },
         },
+      },
 
-        {
-          $unwind:
-            "$items",
-        },
+      {
+        $group: {
+          _id: "$bill.status",
 
-        {
-          $group: {
-            _id: {
-              productId:
-                "$items.productId",
+          count: {
+            $sum: 1,
+          },
 
-              name:
-                "$items.name",
-            },
-
-            quantity: {
-              $sum:
-                "$items.quantity",
-            },
-
-            revenue: {
-              $sum:
-                "$items.total",
-            },
+          amount: {
+            $sum: "$total",
           },
         },
+      },
+    ]);
 
-        {
-          $sort: {
-            quantity: -1,
+    const billRequests = {
+      requested: 0,
+      requestedAmount: 0,
+
+      generated: 0,
+      generatedAmount: 0,
+
+      paid: 0,
+      paidAmount: 0,
+    };
+
+    for (const item of billRequestsResult) {
+      const status = item._id;
+
+      const count = Number(item.count || 0);
+
+      const amount = Number(item.amount || 0);
+
+      if (status === "requested") {
+        billRequests.requested = count;
+
+        billRequests.requestedAmount = amount;
+      }
+
+      if (status === "generated") {
+        billRequests.generated = count;
+
+        billRequests.generatedAmount = amount;
+      }
+
+      if (status === "paid") {
+        billRequests.paid = count;
+
+        billRequests.paidAmount = amount;
+      }
+    }
+
+    // ========================================================
+    // 9. RECENT ORDERS
+    // ========================================================
+
+    const recentOrders = await Order.find({})
+      .sort({
+        createdAt: -1,
+      })
+      .limit(8)
+      .select(
+        [
+          "orderNumber",
+          "tableId",
+          "customer",
+          "total",
+          "status",
+          "payment",
+          "bill",
+          "createdAt",
+          "items",
+        ].join(" "),
+      )
+      .lean();
+
+    // ========================================================
+    // 10. POPULAR PRODUCTS
+    // ========================================================
+
+    const popularProducts = await Order.aggregate([
+      {
+        $match: {
+          ...todayFilter,
+
+          status: {
+            $ne: "cancelled",
           },
         },
+      },
 
-        {
-          $limit: 5,
+      {
+        $unwind: "$items",
+      },
+
+      {
+        $group: {
+          _id: {
+            productId: "$items.productId",
+
+            name: "$items.name",
+          },
+
+          quantity: {
+            $sum: "$items.quantity",
+          },
+
+          revenue: {
+            $sum: "$items.total",
+          },
         },
-      ]);
+      },
+
+      {
+        $sort: {
+          quantity: -1,
+        },
+      },
+
+      {
+        $limit: 5,
+      },
+    ]);
 
     // ========================================================
-    // 9. AVERAGE PAID ORDER VALUE
+    // 11. FINANCIAL DATA
     // ========================================================
 
-    const totalOrders =
-      Number(
-        revenueData.orders ||
-          0
-      );
+    const financials = canViewFinancials
+      ? {
+          revenue: totalRevenue,
 
-    const totalRevenue =
-      Number(
-        revenueData.revenue ||
-          0
-      );
+          netSales: totalSubtotal,
 
-    const averageOrderValue =
-      totalOrders > 0
-        ? Math.round(
-            (
-              totalRevenue /
-                totalOrders +
-              Number.EPSILON
-            ) *
-              100
-          ) / 100
-        : 0;
+          taxCollected: totalTax,
+
+          paidOrders: totalPaidOrders,
+
+          itemsSold: totalItemsSold,
+
+          averageOrderValue: averageOrderValue,
+
+          currency: "INR",
+
+          // IMPORTANT:
+          // Current Order model does not store
+          // COGS / product cost / expenses.
+          profitAvailable: false,
+
+          profit: null,
+
+          profitMessage:
+            "Profit tracking requires product cost and expense data.",
+        }
+      : null;
 
     // ========================================================
-    // 10. RESPONSE
+    // 12. RESPONSE
     // ========================================================
 
     return successResponse({
-      date: {
-        timezone:
-          "Asia/Kolkata",
+      currentUser: serializeCurrentUser(currentUser),
 
-        start:
-          start.toISOString(),
+      permissions: {
+        canViewFinancials,
 
-        end:
-          end.toISOString(),
+        canManageTables,
+
+        canViewCustomers,
       },
 
+      date: {
+        timezone: "Asia/Kolkata",
+
+        start: start.toISOString(),
+
+        end: end.toISOString(),
+      },
+
+      financials,
+
       overview: {
-        revenue:
-          totalRevenue,
+        revenue: canViewFinancials ? totalRevenue : null,
 
-        // Paid orders
-        orders:
-          totalOrders,
+        netSales: canViewFinancials ? totalSubtotal : null,
 
-        customers:
-          Number(
-            customerData.count ||
-              0
-          ),
+        taxCollected: canViewFinancials ? totalTax : null,
 
-        itemsSold:
-          Number(
-            revenueData.items ||
-              0
-          ),
+        orders: totalPaidOrders,
 
-        activeTables:
-          Number(
-            tableData.count ||
-              0
-          ),
+        customers: canViewCustomers ? Number(customerData.count || 0) : null,
 
-        averageOrderValue,
+        itemsSold: totalItemsSold,
+
+        activeTables: canManageTables ? Number(tableData.count || 0) : null,
+
+        averageOrderValue: canViewFinancials ? averageOrderValue : null,
       },
 
       statusCounts,
 
-      recentOrders:
-        recentOrders.map(
-          (order) => ({
-            id:
-              order._id.toString(),
+      billRequests,
 
-            orderNumber:
-              order.orderNumber,
+      recentOrders: recentOrders.map((order) => ({
+        id: order._id.toString(),
 
-            tableId:
-              order.tableId,
+        orderNumber: order.orderNumber,
 
-            customer:
-              order.customer ||
-              null,
+        tableId: order.tableId,
 
-            total:
-              Number(
-                order.total || 0
-              ),
+        customer: order.customer || null,
 
-            status:
-              order.status,
+        total: Number(order.total || 0),
 
-            paymentStatus:
-              order.paymentStatus,
+        status: order.status,
 
-            paymentMethod:
-              order.paymentMethod ||
-              null,
+        paymentStatus: order.payment?.status || "pending",
 
-            itemCount:
-              getItemCount(
-                order.items
-              ),
+        paymentMethod: order.payment?.method || null,
 
-            createdAt:
-              order.createdAt,
-          })
-        ),
+        billStatus: order.bill?.status || "not_requested",
 
-      popularProducts:
-        popularProducts.map(
-          (item) => ({
-            productId:
-              item._id
-                ?.productId ||
-              null,
+        itemCount: getItemCount(order.items),
 
-            name:
-              item._id
-                ?.name ||
-              "Unknown",
+        createdAt: order.createdAt,
+      })),
 
-            quantity:
-              Number(
-                item.quantity || 0
-              ),
+      popularProducts: popularProducts.map((item) => ({
+        productId: item._id?.productId || null,
 
-            revenue:
-              Number(
-                item.revenue || 0
-              ),
-          })
-        ),
+        name: item._id?.name || "Unknown",
+
+        quantity: Number(item.quantity || 0),
+
+        revenue: canViewFinancials ? Number(item.revenue || 0) : null,
+      })),
     });
   } catch (error) {
-    console.error(
-      "GET /api/admin/ error:",
-      error
-    );
+    console.error("GET /api/admin/dashboard error:", error);
 
     if (
-      error?.name ===
-        "MongoServerSelectionError" ||
-      error?.name ===
-        "MongoNetworkError"
+      error?.name === "MongoServerSelectionError" ||
+      error?.name === "MongoNetworkError"
     ) {
-      return errorResponse(
-        "Database is temporarily unavailable.",
-        503
-      );
+      return errorResponse("Database is temporarily unavailable.", 503);
     }
 
-    return errorResponse(
-      "Unable to load dashboard data.",
-      500
-    );
+    return errorResponse("Unable to load dashboard data.", 500);
   }
 }
