@@ -14,19 +14,15 @@ import {
   ShoppingBag,
   Store,
   Users,
+  Landmark,
   X,
 } from "lucide-react";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
-import AdminBottomNav from "@/components/admin/AdminBottomNav";
-
-const metadata = {
-  title: "Ramen Cafe - Admin",
-}
+// export const metadata = {
+//   title: "Ramen Cafe - Admin",
+// }
 
 const SIDEBAR_ITEMS = [
   {
@@ -50,6 +46,11 @@ const SIDEBAR_ITEMS = [
     icon: Store,
   },
   {
+    label: "Bills",
+    href: "/admin/bills",
+    icon: Landmark,
+  },
+  {
     label: "Analytics",
     href: "/admin/analytics",
     icon: BarChart3,
@@ -66,25 +67,17 @@ const SIDEBAR_ITEMS = [
   },
 ];
 
-export default function AdminLayout({
-  children,
-}) {
-  const pathname =
-    usePathname();
+export default function AdminLayout({ children }) {
+  const pathname = usePathname();
 
-  const [
-    mobileMenuOpen,
-    setMobileMenuOpen,
-  ] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ==========================================================
   // CLOSE MOBILE MENU ON ROUTE CHANGE
   // ==========================================================
 
   useEffect(() => {
-    setMobileMenuOpen(
-      false
-    );
+    setMobileMenuOpen(false);
   }, [pathname]);
 
   // ==========================================================
@@ -96,12 +89,7 @@ export default function AdminLayout({
       return pathname === "/admin";
     }
 
-    return (
-      pathname === href ||
-      pathname.startsWith(
-        `${href}/`
-      )
-    );
+    return pathname === href || pathname.startsWith(`${href}/`);
   }
 
   // ==========================================================
@@ -119,21 +107,13 @@ export default function AdminLayout({
        * only this function needs to change.
        */
 
-      const response =
-        await fetch(
-          "/api/auth/logout",
-          {
-            method: "POST",
-            credentials:
-              "include",
-          }
-        );
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
 
-      if (
-        response.ok
-      ) {
-        window.location.href =
-          "/login";
+      if (response.ok) {
+        window.location.href = "/login";
         return;
       }
 
@@ -144,16 +124,11 @@ export default function AdminLayout({
        * don't break the admin interface.
        */
 
-      window.location.href =
-        "/login";
+      window.location.href = "/login";
     } catch (error) {
-      console.error(
-        "Logout error:",
-        error
-      );
+      console.error("Logout error:", error);
 
-      window.location.href =
-        "/login";
+      window.location.href = "/login";
     }
   }
 
@@ -167,20 +142,13 @@ export default function AdminLayout({
         {/* BRAND */}
 
         <div className="flex h-20 items-center border-b border-[#E8E1D6] px-6">
-          <Link
-            href="/admin"
-            className="flex items-center gap-3"
-          >
+          <Link href="/admin" className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#171513] text-white">
-              <span className="text-lg">
-                🍜
-              </span>
+              <span className="text-lg">🍜</span>
             </div>
 
             <div>
-              <p className="text-sm font-bold tracking-[0.08em]">
-                RAMEN CAFE
-              </p>
+              <p className="text-sm font-bold tracking-[0.08em]">RAMEN CAFE</p>
 
               <p className="mt-0.5 text-[9px] font-semibold tracking-[0.2em] text-[#B83A2E]">
                 ADMIN PANEL
@@ -197,50 +165,27 @@ export default function AdminLayout({
           </p>
 
           <div className="space-y-1">
-            {SIDEBAR_ITEMS.map(
-              ({
-                label,
-                href,
-                icon: Icon,
-              }) => {
-                const active =
-                  isActive(
-                    href
-                  );
+            {SIDEBAR_ITEMS.map(({ label, href, icon: Icon }) => {
+              const active = isActive(href);
 
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`group flex items-center gap-3 rounded-xl px-3 py-3 transition ${
-                      active
-                        ? "bg-[#171513] text-white"
-                        : "text-[#655D54] hover:bg-[#F5F0E8] hover:text-[#171513]"
-                    }`}
-                  >
-                    <Icon
-                      size={17}
-                      strokeWidth={
-                        active
-                          ? 2.3
-                          : 1.8
-                      }
-                    />
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`group flex items-center gap-3 rounded-xl px-3 py-3 transition ${
+                    active
+                      ? "bg-[#171513] text-white"
+                      : "text-[#655D54] hover:bg-[#F5F0E8] hover:text-[#171513]"
+                  }`}
+                >
+                  <Icon size={17} strokeWidth={active ? 2.3 : 1.8} />
 
-                    <span className="flex-1 text-xs font-semibold">
-                      {label}
-                    </span>
+                  <span className="flex-1 text-xs font-semibold">{label}</span>
 
-                    {active && (
-                      <ChevronRight
-                        size={14}
-                        className="opacity-60"
-                      />
-                    )}
-                  </Link>
-                );
-              }
-            )}
+                  {active && <ChevronRight size={14} className="opacity-60" />}
+                </Link>
+              );
+            })}
           </div>
         </nav>
 
@@ -252,21 +197,14 @@ export default function AdminLayout({
               Restaurant
             </p>
 
-            <p className="mt-1 text-xs font-semibold">
-              Admin Workspace
-            </p>
+            <p className="mt-1 text-xs font-semibold">Admin Workspace</p>
           </div>
 
           <button
-            onClick={
-              handleLogout
-            }
+            onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-xs font-semibold text-[#655D54] transition hover:bg-red-50 hover:text-red-600"
           >
-            <LogOut
-              size={17}
-            />
-
+            <LogOut size={17} />
             Logout
           </button>
         </div>
@@ -277,18 +215,13 @@ export default function AdminLayout({
       ====================================================== */}
 
       <header className="sticky top-0 z-40 flex h-[68px] items-center justify-between border-b border-[#DED6C9] bg-[#FFFDF8]/95 px-4 backdrop-blur-xl lg:hidden">
-        <Link
-          href="/admin"
-          className="flex items-center gap-2.5"
-        >
+        <Link href="/admin" className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#171513] text-sm">
             🍜
           </div>
 
           <div>
-            <p className="text-xs font-bold tracking-[0.08em]">
-              RAMEN CAFE
-            </p>
+            <p className="text-xs font-bold tracking-[0.08em]">RAMEN CAFE</p>
 
             <p className="text-[8px] font-semibold tracking-[0.16em] text-[#B83A2E]">
               ADMIN
@@ -297,17 +230,11 @@ export default function AdminLayout({
         </Link>
 
         <button
-          onClick={() =>
-            setMobileMenuOpen(
-              true
-            )
-          }
+          onClick={() => setMobileMenuOpen(true)}
           className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#DED6C9] bg-[#FFFDF8]"
           aria-label="Open admin menu"
         >
-          <Menu
-            size={18}
-          />
+          <Menu size={18} />
         </button>
       </header>
 
@@ -320,11 +247,7 @@ export default function AdminLayout({
           {/* BACKDROP */}
 
           <button
-            onClick={() =>
-              setMobileMenuOpen(
-                false
-              )
-            }
+            onClick={() => setMobileMenuOpen(false)}
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             aria-label="Close menu"
           />
@@ -344,16 +267,10 @@ export default function AdminLayout({
               </div>
 
               <button
-                onClick={() =>
-                  setMobileMenuOpen(
-                    false
-                  )
-                }
+                onClick={() => setMobileMenuOpen(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#DED6C9]"
               >
-                <X
-                  size={17}
-                />
+                <X size={17} />
               </button>
             </div>
 
@@ -363,56 +280,32 @@ export default function AdminLayout({
               </p>
 
               <div className="space-y-1">
-                {SIDEBAR_ITEMS.map(
-                  ({
-                    label,
-                    href,
-                    icon: Icon,
-                  }) => {
-                    const active =
-                      isActive(
-                        href
-                      );
+                {SIDEBAR_ITEMS.map(({ label, href, icon: Icon }) => {
+                  const active = isActive(href);
 
-                    return (
-                      <Link
-                        key={href}
-                        href={
-                          href
-                        }
-                        className={`flex items-center gap-3 rounded-xl px-3 py-3.5 ${
-                          active
-                            ? "bg-[#171513] text-white"
-                            : "text-[#655D54]"
-                        }`}
-                      >
-                        <Icon
-                          size={18}
-                        />
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-3.5 ${
+                        active ? "bg-[#171513] text-white" : "text-[#655D54]"
+                      }`}
+                    >
+                      <Icon size={18} />
 
-                        <span className="text-xs font-semibold">
-                          {
-                            label
-                          }
-                        </span>
-                      </Link>
-                    );
-                  }
-                )}
+                      <span className="text-xs font-semibold">{label}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </nav>
 
             <div className="border-t border-[#E8E1D6] p-4">
               <button
-                onClick={
-                  handleLogout
-                }
+                onClick={handleLogout}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-100 px-4 py-3 text-xs font-semibold text-red-600"
               >
-                <LogOut
-                  size={16}
-                />
-
+                <LogOut size={16} />
                 Logout
               </button>
             </div>
@@ -425,16 +318,8 @@ export default function AdminLayout({
       ====================================================== */}
 
       <div className="lg:pl-[250px]">
-        <div className="min-h-screen pb-[86px] lg:pb-0">
-          {children}
-        </div>
+        <div className="min-h-screen pb-[86px] lg:pb-0">{children}</div>
       </div>
-
-      {/* ======================================================
-          MOBILE BOTTOM NAV
-      ====================================================== */}
-
-      <AdminBottomNav />
     </div>
   );
 }
