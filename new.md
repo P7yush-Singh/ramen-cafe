@@ -1,8 +1,8 @@
-## [ ] Production environment variables
-## [ ] MongoDB production database
-## [ ] Cloudinary production configuration
-## [ ] Resend production configuration
-[ ] Admin login URL verified
+## [ ] Production environment variables  -  Done
+## [ ] MongoDB production database  -  Done
+## [ ] Cloudinary production configuration  -  Done
+## [ ] Resend production configuration  -  Done
+## [ ] Admin login URL verified  -  Done
 ## [ ] Admin role permissions verified
 ## [ ] Table QR tested
 ## [ ] Menu tested
