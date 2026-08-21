@@ -373,9 +373,9 @@ export default function OwnerInfoPage() {
             name: "Piyush Singh",
             url: "https://p7yu5h.in",
             image: [
-              "https://p7yu5h.in/owner/PiyushSingh.jpeg",
+              "https://p7yu5h.in/owner/PiyushSingh.JPEG",
               "https://p7yu5h.in/owner/piyush-singh.jpeg",
-              "https://p7yu5h.in/owner/PS.jpeg",
+              "https://p7yu5h.in/owner/PS.JPEG",
             ],
             jobTitle: "Software Developer",
             sameAs: [
