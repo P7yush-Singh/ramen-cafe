@@ -554,7 +554,7 @@ export default function OwnerInfoPage() {
             <div className="relative overflow-hidden rounded-[2.2rem] border border-[#DED6C9] bg-[#FFFDF8] p-3">
               <div className="hero-photo relative aspect-4/5 overflow-hidden rounded-[1.7rem]">
                 <Image
-                  src="/owner/PiyushSingh.jpeg"
+                  src="/owner/PiyushSingh.JPEG"
                   alt="Piyush Singh, software developer and creator of Ramen Cafe"
                   fill
                   priority
@@ -1253,7 +1253,7 @@ export default function OwnerInfoPage() {
               <div className="overflow-hidden rounded-4xl border border-[#DED6C9] bg-[#FFFDF8] p-3">
                 <div className="image-reveal relative aspect-4/5 overflow-hidden rounded-3xl">
                   <Image
-                    src="/owner/PS.jpeg"
+                    src="/owner/PS.JPEG"
                     alt="Piyush Singh, developer and creator of Ramen Cafe"
                     fill
                     className="parallax-image object-cover"
