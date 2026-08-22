@@ -191,8 +191,14 @@ export default function Home() {
             <div className="relative z-10 overflow-hidden rounded-4xl">
               <img
                 src="https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=1200&q=85"
+                srcSet="https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=480&q=70 480w, https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=768&q=75 768w, https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=1200&q=80 1200w"
+                sizes="(max-width: 768px) 100vw, 50vw"
                 alt="Japanese ramen bowl"
-                className="h-137.5 w-full object-cover"
+                width="1200"
+                height="1100"
+                fetchPriority="high"
+                decoding="async"
+                className="h-[clamp(24rem,70vw,34.375rem)] w-full object-cover"
               />
 
               <div className="absolute bottom-6 left-6 right-6 rounded-2xl bg-[#171513]/90 p-5 text-white backdrop-blur-md">

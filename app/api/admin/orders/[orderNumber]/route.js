@@ -1,7 +1,10 @@
 import { connectDB } from "@/lib/mongodb";
-import { getServerUser } from "@/lib/auth-server";
 
 import Order from "@/models/Order";
+
+import {
+  requireOrderAccess,
+} from "@/lib/admin-auth";
 
 // ============================================================
 // RESPONSE HELPERS
@@ -38,26 +41,11 @@ function errorResponse(
 }
 
 // ============================================================
-// ADMIN AUTH
+// ORDER MANAGEMENT AUTHORIZATION
 // ============================================================
 
-function isAdminUser(user) {
-  if (!user) {
-    return false;
-  }
-
-  const role = String(
-    user.role || ""
-  )
-    .trim()
-    .toLowerCase();
-
-  return (
-    role === "admin" ||
-    role === "owner" ||
-    role === "staff" ||
-    role === "manager"
-  );
+async function requireOrderManagementAccess() {
+  return requireOrderAccess();
 }
 
 // ============================================================
@@ -108,6 +96,10 @@ const STATUS_TRANSITIONS = {
   cancelled: [],
 };
 
+// ============================================================
+// VALIDATE STATUS TRANSITION
+// ============================================================
+
 function isValidStatusTransition(
   currentStatus,
   nextStatus
@@ -141,6 +133,10 @@ function serializeOrder(order) {
     userId:
       order.userId?.toString(),
 
+    // ========================================================
+    // CUSTOMER
+    // ========================================================
+
     customer: order.customer
       ? {
           name:
@@ -157,8 +153,16 @@ function serializeOrder(order) {
         }
       : null,
 
+    // ========================================================
+    // TABLE
+    // ========================================================
+
     tableId:
       order.tableId || "",
+
+    // ========================================================
+    // ITEMS
+    // ========================================================
 
     items:
       Array.isArray(
@@ -217,6 +221,10 @@ function serializeOrder(order) {
           )
         : [],
 
+    // ========================================================
+    // AMOUNTS
+    // ========================================================
+
     subtotal:
       Number(
         order.subtotal || 0
@@ -237,8 +245,16 @@ function serializeOrder(order) {
         order.total || 0
       ),
 
+    // ========================================================
+    // STATUS
+    // ========================================================
+
     status:
       order.status,
+
+    // ========================================================
+    // BILL
+    // ========================================================
 
     bill: order.bill
       ? {
@@ -269,6 +285,10 @@ function serializeOrder(order) {
         }
       : null,
 
+    // ========================================================
+    // PAYMENT
+    // ========================================================
+
     payment: order.payment
       ? {
           status:
@@ -285,8 +305,7 @@ function serializeOrder(order) {
             null,
 
           transactionId:
-            order.payment
-              .transactionId ||
+            order.payment.transactionId ||
             null,
 
           paidAt:
@@ -295,6 +314,10 @@ function serializeOrder(order) {
         }
       : null,
 
+    // ========================================================
+    // RECEIPT
+    // ========================================================
+
     receipt: order.receipt
       ? {
           sentAt:
@@ -302,6 +325,10 @@ function serializeOrder(order) {
             null,
         }
       : null,
+
+    // ========================================================
+    // PREPARATION
+    // ========================================================
 
     estimatedPreparationMinutes:
       Number(
@@ -312,6 +339,10 @@ function serializeOrder(order) {
     estimatedReadyAt:
       order.estimatedReadyAt ||
       null,
+
+    // ========================================================
+    // TIMESTAMPS
+    // ========================================================
 
     confirmedAt:
       order.confirmedAt ||
@@ -362,24 +393,14 @@ export async function GET(
 ) {
   try {
     // ----------------------------------------------------------
-    // AUTH
+    // AUTHORIZATION
     // ----------------------------------------------------------
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireOrderManagementAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
-    }
-
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to access this order.",
-        403
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
     // ----------------------------------------------------------
@@ -411,6 +432,10 @@ export async function GET(
 
     await connectDB();
 
+    // ----------------------------------------------------------
+    // FIND ORDER
+    // ----------------------------------------------------------
+
     const order =
       await Order.findOne({
         orderNumber:
@@ -423,6 +448,10 @@ export async function GET(
         404
       );
     }
+
+    // ----------------------------------------------------------
+    // RESPONSE
+    // ----------------------------------------------------------
 
     return successResponse({
       order:
@@ -446,7 +475,6 @@ export async function GET(
 // ============================================================
 // PATCH
 // /api/admin/orders/[orderNumber]
-// ============================================================
 
 export async function PATCH(
   request,
@@ -454,24 +482,14 @@ export async function PATCH(
 ) {
   try {
     // ----------------------------------------------------------
-    // AUTH
+    // AUTHORIZATION
     // ----------------------------------------------------------
 
-    const user =
-      await getServerUser();
+    const auth =
+      await requireOrderManagementAccess();
 
-    if (!user) {
-      return errorResponse(
-        "Authentication required.",
-        401
-      );
-    }
-
-    if (!isAdminUser(user)) {
-      return errorResponse(
-        "You are not authorized to update orders.",
-        403
-      );
+    if (auth.response) {
+      return auth.response;
     }
 
     // ----------------------------------------------------------
@@ -498,7 +516,7 @@ export async function PATCH(
       orderNumber.toUpperCase();
 
     // ----------------------------------------------------------
-    // BODY
+    // REQUEST BODY
     // ----------------------------------------------------------
 
     let body;
@@ -515,8 +533,7 @@ export async function PATCH(
 
     if (
       !body ||
-      typeof body !==
-        "object" ||
+      typeof body !== "object" ||
       Array.isArray(body)
     ) {
       return errorResponse(
@@ -525,56 +542,20 @@ export async function PATCH(
       );
     }
 
-    // ----------------------------------------------------------
-    // STATUS
-    // ----------------------------------------------------------
+    const hasStatusUpdate =
+      typeof body.status === "string" &&
+      body.status.trim().length > 0;
 
-    const nextStatus =
-      String(
-        body.status || ""
-      )
-        .trim()
-        .toLowerCase();
-
-    if (!nextStatus) {
-      return errorResponse(
-        "New order status is required.",
-        400
-      );
-    }
+    const hasPaymentUpdate =
+      typeof body.paymentStatus === "string" &&
+      body.paymentStatus.trim().length > 0;
 
     if (
-      !ALLOWED_STATUSES.includes(
-        nextStatus
-      )
+      !hasStatusUpdate &&
+      !hasPaymentUpdate
     ) {
       return errorResponse(
-        `Invalid status. Allowed values: ${ALLOWED_STATUSES.join(
-          ", "
-        )}.`,
-        400
-      );
-    }
-
-    // ----------------------------------------------------------
-    // CANCELLATION
-    // ----------------------------------------------------------
-
-    const cancellationReason =
-      String(
-        body.cancellationReason ||
-          ""
-      )
-        .trim()
-        .slice(0, 500);
-
-    if (
-      nextStatus ===
-        "cancelled" &&
-      !cancellationReason
-    ) {
-      return errorResponse(
-        "Cancellation reason is required.",
+        "No valid order update was provided.",
         400
       );
     }
@@ -584,6 +565,10 @@ export async function PATCH(
     // ----------------------------------------------------------
 
     await connectDB();
+
+    // ----------------------------------------------------------
+    // FIND ORDER
+    // ----------------------------------------------------------
 
     const order =
       await Order.findOne({
@@ -598,9 +583,167 @@ export async function PATCH(
       );
     }
 
-    // ----------------------------------------------------------
-    // CURRENT STATUS
-    // ----------------------------------------------------------
+    // ==========================================================
+    // PAYMENT UPDATE
+    // ==========================================================
+
+    if (hasPaymentUpdate) {
+      const paymentStatus =
+        String(
+          body.paymentStatus || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const allowedPaymentStatuses = [
+        "pending",
+        "paid",
+        "failed",
+        "refunded",
+      ];
+
+      if (
+        !allowedPaymentStatuses.includes(
+          paymentStatus
+        )
+      ) {
+        return errorResponse(
+          `Invalid payment status. Allowed values: ${allowedPaymentStatuses.join(
+            ", "
+          )}.`,
+          400
+        );
+      }
+
+      if (!order.payment) {
+        order.payment = {
+          status: "pending",
+          amount: 0,
+          method: null,
+          transactionId: null,
+          paidAt: null,
+        };
+      }
+
+      order.payment.status =
+        paymentStatus;
+
+      if (
+        body.paymentMethod !==
+        undefined
+      ) {
+        const paymentMethod =
+          String(
+            body.paymentMethod || ""
+          )
+            .trim()
+            .toLowerCase()
+            .slice(0, 30);
+
+        order.payment.method =
+          paymentMethod || null;
+      }
+
+      if (
+        body.transactionId !==
+        undefined
+      ) {
+        const transactionId =
+          String(
+            body.transactionId || ""
+          )
+            .trim()
+            .slice(0, 100);
+
+        order.payment.transactionId =
+          transactionId || null;
+      }
+
+      if (
+        paymentStatus === "paid"
+      ) {
+        const now =
+          new Date();
+
+        order.payment.amount =
+          Number(
+            order.total || 0
+          );
+
+        order.payment.paidAt =
+          now;
+
+        if (order.bill) {
+          order.bill.status =
+            "paid";
+
+          order.bill.amount =
+            Number(
+              order.total || 0
+            );
+
+          order.bill.paidAt =
+            now;
+        }
+      } else {
+        order.payment.paidAt =
+          null;
+      }
+
+      await order.save();
+
+      return successResponse({
+        message:
+          "Payment updated successfully.",
+
+        order:
+          serializeOrder(
+            order
+          ),
+      });
+    }
+
+    // ==========================================================
+    // STATUS UPDATE
+    // ==========================================================
+
+    const nextStatus =
+      String(
+        body.status || ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      !ALLOWED_STATUSES.includes(
+        nextStatus
+      )
+    ) {
+      return errorResponse(
+        `Invalid status. Allowed values: ${ALLOWED_STATUSES.join(
+          ", "
+        )}.`,
+        400
+      );
+    }
+
+    const cancellationReason =
+      String(
+        body.cancellationReason ||
+          ""
+      )
+        .trim()
+        .slice(0, 500);
+
+    if (
+      nextStatus === "cancelled" &&
+      !cancellationReason
+    ) {
+      return errorResponse(
+        "Cancellation reason is required.",
+        400
+      );
+    }
 
     const currentStatus =
       String(
@@ -608,10 +751,6 @@ export async function PATCH(
       )
         .trim()
         .toLowerCase();
-
-    // ----------------------------------------------------------
-    // SAME STATUS
-    // ----------------------------------------------------------
 
     if (
       currentStatus ===
@@ -622,10 +761,6 @@ export async function PATCH(
         409
       );
     }
-
-    // ----------------------------------------------------------
-    // VALIDATE TRANSITION
-    // ----------------------------------------------------------
 
     if (
       !isValidStatusTransition(
@@ -639,39 +774,28 @@ export async function PATCH(
       );
     }
 
-    // ----------------------------------------------------------
-    // UPDATE STATUS
-    // ----------------------------------------------------------
-
     order.status =
       nextStatus;
 
     const now =
       new Date();
 
-    // ----------------------------------------------------------
-    // TIMESTAMPS
-    // ----------------------------------------------------------
-
     if (
-      nextStatus ===
-      "confirmed"
+      nextStatus === "confirmed"
     ) {
       order.confirmedAt =
         now;
     }
 
     if (
-      nextStatus ===
-      "preparing"
+      nextStatus === "preparing"
     ) {
       order.preparingAt =
         now;
     }
 
     if (
-      nextStatus ===
-      "ready"
+      nextStatus === "ready"
     ) {
       order.readyAt =
         now;
@@ -681,24 +805,21 @@ export async function PATCH(
     }
 
     if (
-      nextStatus ===
-      "served"
+      nextStatus === "served"
     ) {
       order.servedAt =
         now;
     }
 
     if (
-      nextStatus ===
-      "completed"
+      nextStatus === "completed"
     ) {
       order.completedAt =
         now;
     }
 
     if (
-      nextStatus ===
-      "cancelled"
+      nextStatus === "cancelled"
     ) {
       order.cancelledAt =
         now;
@@ -706,10 +827,6 @@ export async function PATCH(
       order.cancellationReason =
         cancellationReason;
     }
-
-    // ----------------------------------------------------------
-    // SAVE
-    // ----------------------------------------------------------
 
     await order.save();
 
@@ -727,10 +844,6 @@ export async function PATCH(
       "PATCH /api/admin/orders/[orderNumber] error:",
       error
     );
-
-    // ----------------------------------------------------------
-    // MONGOOSE VALIDATION
-    // ----------------------------------------------------------
 
     if (
       error?.name ===
