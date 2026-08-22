@@ -107,9 +107,13 @@ function normalizeProduct(
       body.isFeatured ===
       true,
 
+    // Accept the canonical `addOns` field and the old `addons`
+    // field so older clients cannot silently lose add-ons.
     addOns:
       normalizeAddOns(
-        body.addOns
+        Array.isArray(body.addOns)
+          ? body.addOns
+          : body.addons
       ),
 
     customization: {

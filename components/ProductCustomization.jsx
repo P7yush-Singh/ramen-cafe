@@ -5,17 +5,17 @@ import {
   useMemo,
   useState,
 } from "react";
-
 import {
   Check,
+  ImageOff,
   Minus,
   Plus,
   ShoppingCart,
   X,
 } from "lucide-react";
-
-import { getTableId } from "@/lib/tableSession";
-
+import {
+  getTableId,
+} from "@/lib/tableSession";
 import {
   getCart,
   saveCart,
@@ -27,51 +27,17 @@ export default function ProductCustomization({
   onAdded,
   mode = "desktop",
 }) {
-  // ============================================================
-  // PRODUCT DATA
-  // ============================================================
+  const [noodle, setNoodle] =
+    useState("Regular");
 
-  const productId =
-    String(
-      product?._id ||
-        product?.id ||
-        ""
-    );
+  const [spice, setSpice] =
+    useState("Medium");
 
-  const productPrice =
-    Number(product?.price || 0);
+  const [quantity, setQuantity] =
+    useState(1);
 
-  const addOns = useMemo(() => {
-    return Array.isArray(
-      product?.addOns
-    )
-      ? product.addOns.filter(
-          (addon) =>
-            addon &&
-            addon.isAvailable !== false
-        )
-      : [];
-  }, [product]);
-
-  const noodles = useMemo(() => {
-    return Array.isArray(
-      product?.customization?.noodles
-    )
-      ? product.customization.noodles
-      : [];
-  }, [product]);
-
-  const spiceLevels = useMemo(() => {
-    return Array.isArray(
-      product?.customization?.spiceLevels
-    )
-      ? product.customization.spiceLevels
-      : [];
-  }, [product]);
-
-  // ============================================================
-  // RAMEN DETECTION
-  // ============================================================
+  const [selectedAddons, setSelectedAddons] =
+    useState([]);
 
   const isRamen =
     String(
@@ -81,25 +47,84 @@ export default function ProductCustomization({
       .toLowerCase() ===
     "ramen";
 
-  // ============================================================
-  // STATE
-  // ============================================================
+  const noodleOptions =
+    useMemo(() => {
+      const options =
+        Array.isArray(
+          product?.customization
+            ?.noodles
+        )
+          ? product.customization.noodles
+              .map((item) =>
+                String(item).trim()
+              )
+              .filter(Boolean)
+          : [];
 
-  const [noodle, setNoodle] =
-    useState("");
+      return options.length > 0
+        ? options
+        : [
+            "Regular",
+            "Thin",
+            "Thick",
+          ];
+    }, [product]);
 
-  const [spice, setSpice] =
-    useState("");
+  const spiceOptions =
+    useMemo(() => {
+      const options =
+        Array.isArray(
+          product?.customization
+            ?.spiceLevels
+        )
+          ? product.customization
+              .spiceLevels
+              .map((item) =>
+                String(item).trim()
+              )
+              .filter(Boolean)
+          : [];
 
-  const [quantity, setQuantity] =
-    useState(1);
+      return options.length > 0
+        ? options
+        : [
+            "Mild",
+            "Medium",
+            "Hot",
+          ];
+    }, [product]);
 
-  const [selectedAddons, setSelectedAddons] =
-    useState([]);
+  const addons = useMemo(() => {
+    if (
+      !Array.isArray(
+        product?.addOns
+      )
+    ) {
+      return [];
+    }
 
-  // ============================================================
-  // INITIALIZE CUSTOMIZATION
-  // ============================================================
+    return product.addOns
+      .filter(
+        (addon) =>
+          addon &&
+          addon.name &&
+          addon.isAvailable !==
+            false
+      )
+      .map(
+        (addon, index) => ({
+          id:
+            addon._id?.toString() ||
+            addon.id?.toString() ||
+            `${product.id}-addon-${index}`,
+          name: String(
+            addon.name
+          ).trim(),
+          price:
+            Number(addon.price) || 0,
+        })
+      );
+  }, [product]);
 
   useEffect(() => {
     document.body.style.overflow =
@@ -112,333 +137,163 @@ export default function ProductCustomization({
   }, []);
 
   useEffect(() => {
-    // ----------------------------------------------------------
-    // Select first available noodle option
-    // ----------------------------------------------------------
-
     if (
-      isRamen &&
-      noodles.length > 0
+      !noodleOptions.includes(noodle)
     ) {
       setNoodle(
-        String(noodles[0])
+        noodleOptions[0] ||
+          "Regular"
       );
-    } else {
-      setNoodle("");
     }
-
-    // ----------------------------------------------------------
-    // Select first available spice option
-    // ----------------------------------------------------------
 
     if (
-      isRamen &&
-      spiceLevels.length > 0
+      !spiceOptions.includes(spice)
     ) {
       setSpice(
-        String(spiceLevels[0])
+        spiceOptions[0] ||
+          "Medium"
       );
-    } else {
-      setSpice("");
     }
 
-    // ----------------------------------------------------------
-    // Reset quantity
-    // ----------------------------------------------------------
-
-    setQuantity(1);
-
-    // ----------------------------------------------------------
-    // Reset add-ons
-    // ----------------------------------------------------------
-
     setSelectedAddons([]);
+    setQuantity(1);
   }, [
-    productId,
-    isRamen,
-    noodles,
-    spiceLevels,
+    product?.id,
+    noodleOptions,
+    spiceOptions,
   ]);
 
-  // ============================================================
-  // SELECTED ADD-ON OBJECTS
-  // ============================================================
+  const addonTotal = useMemo(() => {
+    return selectedAddons.reduce(
+      (total, addonId) => {
+        const addon =
+          addons.find(
+            (item) =>
+              item.id === addonId
+          );
 
-  const selectedAddonObjects =
-    useMemo(() => {
-      return addOns.filter(
-        (addon) =>
-          selectedAddons.includes(
-            String(
-              addon._id ||
-                addon.id ||
-                ""
-            )
-          )
-      );
-    }, [
-      addOns,
-      selectedAddons,
-    ]);
-
-  // ============================================================
-  // ADD-ON TOTAL
-  // ============================================================
-
-  const addonTotal =
-    useMemo(() => {
-      return selectedAddonObjects.reduce(
-        (total, addon) =>
+        return (
           total +
-          Number(
-            addon.price || 0
-          ),
-        0
-      );
-    }, [
-      selectedAddonObjects,
-    ]);
-
-  // ============================================================
-  // UNIT PRICE
-  // ============================================================
+          (addon?.price || 0)
+        );
+      },
+      0
+    );
+  }, [
+    selectedAddons,
+    addons,
+  ]);
 
   const unitPrice =
-    productPrice +
+    Number(product?.price) +
     addonTotal;
-
-  // ============================================================
-  // TOTAL
-  // ============================================================
 
   const total =
     unitPrice * quantity;
 
-  // ============================================================
-  // TOGGLE ADD-ON
-  // ============================================================
-
-  function toggleAddon(
-    addonId
-  ) {
+  function toggleAddon(id) {
     setSelectedAddons(
       (current) =>
-        current.includes(
-          addonId
-        )
+        current.includes(id)
           ? current.filter(
-              (id) =>
-                id !== addonId
+              (item) =>
+                item !== id
             )
           : [
               ...current,
-              addonId,
+              id,
             ]
     );
   }
-
-  // ============================================================
-  // ADD TO CART
-  // ============================================================
 
   function addToCart() {
     const tableId =
       getTableId();
 
-    if (!tableId) {
-      alert(
-        "Table information is missing. Please scan the table QR code again."
-      );
-
-      return;
-    }
-
-    if (!productId) {
-      alert(
-        "Invalid product."
-      );
-
-      return;
-    }
-
-    if (
-      !Number.isFinite(
-        productPrice
-      ) ||
-      productPrice < 0
-    ) {
-      alert(
-        "Invalid product price."
-      );
-
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // CURRENT CART
-    // ----------------------------------------------------------
-
     const currentCart =
       getCart();
 
-    // ----------------------------------------------------------
-    // IMPORTANT
-    //
-    // Store add-on IDs + names + prices for UI/cart display.
-    //
-    // The server will NOT trust these prices.
-    // It will fetch the authoritative prices from MongoDB.
-    // ----------------------------------------------------------
-
-    const cartAddons =
-      selectedAddonObjects.map(
-        (addon) => ({
-          _id:
-            String(
-              addon._id ||
-                addon.id ||
-                ""
-            ),
-
-          name:
-            addon.name,
-
-          price:
-            Number(
-              addon.price || 0
-            ),
-        })
+    const selectedAddonObjects =
+      addons.filter((addon) =>
+        selectedAddons.includes(
+          addon.id
+        )
       );
 
-    // ----------------------------------------------------------
-    // CART ITEM
-    // ----------------------------------------------------------
-
     const cartItem = {
-      cartItemId:
-        `${productId}-${Date.now()}`,
-
-      productId,
-
-      name:
-        product.name,
-
-      image:
-        product.image || "",
-
-      // IMPORTANT:
-      // API expects `price`.
-      // Do not use only `basePrice`.
-      price:
-        productPrice,
-
-      basePrice:
-        productPrice,
-
+      cartItemId: `${
+        product.id
+      }-${Date.now()}`,
+      productId: product.id,
+      name: product.name,
+      image: product.image,
+      basePrice: product.price,
       quantity,
-
-      noodles:
-        isRamen
-          ? noodle
-          : "",
-
-      spice:
-        isRamen
-          ? spice
-          : "",
-
+      noodle: isRamen
+        ? noodle
+        : null,
+      spice: isRamen
+        ? spice
+        : null,
       addons:
-        cartAddons,
-
+        selectedAddonObjects,
       total,
-
       tableId,
-
-      createdAt:
-        Date.now(),
+      createdAt: Date.now(),
     };
-
-    // ----------------------------------------------------------
-    // SAVE
-    // ----------------------------------------------------------
 
     const updatedCart = [
       ...currentCart,
       cartItem,
     ];
 
-    saveCart(
-      updatedCart
-    );
-
-    // ----------------------------------------------------------
-    // UPDATE UI
-    // ----------------------------------------------------------
+    saveCart(updatedCart);
 
     window.dispatchEvent(
-      new Event(
-        "cart-updated"
-      )
+      new Event("cart-updated")
     );
 
-    // ----------------------------------------------------------
-    // CALLBACK
-    // ----------------------------------------------------------
-
     onAdded?.({
-      product:
-        product.name,
-
+      product: product.name,
       total,
-
       tableId,
     });
   }
 
-  // ============================================================
-  // DESKTOP / MOBILE
-  // ============================================================
-
   const isDesktop =
     mode === "desktop";
 
-  // ============================================================
-  // RENDER
-  // ============================================================
-
   return (
     <>
-      {/* ======================================================
-          OVERLAY
-      ====================================================== */}
-
       <button
         aria-label="Close customization"
         onClick={onClose}
         className="fixed inset-0 z-[70] cursor-default bg-black/40 backdrop-blur-[2px]"
       />
 
-      {/* ======================================================
-          MOBILE / TABLET
-      ====================================================== */}
-
       {!isDesktop && (
         <div className="fixed inset-x-0 bottom-0 z-[80] max-h-[88vh] overflow-hidden rounded-t-[28px] bg-[#FFFDF8] shadow-2xl lg:hidden">
           <CustomizationContent
             product={product}
             isRamen={isRamen}
-            noodles={noodles}
-            spiceLevels={spiceLevels}
             noodle={noodle}
             setNoodle={setNoodle}
+            noodleOptions={
+              noodleOptions
+            }
             spice={spice}
             setSpice={setSpice}
+            spiceOptions={
+              spiceOptions
+            }
             quantity={quantity}
-            setQuantity={setQuantity}
-            addOns={addOns}
+            setQuantity={
+              setQuantity
+            }
             selectedAddons={
               selectedAddons
             }
+            addons={addons}
             toggleAddon={
               toggleAddon
             }
@@ -448,32 +303,33 @@ export default function ProductCustomization({
             }
             onClose={onClose}
             onAdd={addToCart}
-            mobile
           />
         </div>
       )}
-
-      {/* ======================================================
-          DESKTOP DRAWER
-      ====================================================== */}
 
       {isDesktop && (
         <aside className="fixed bottom-0 right-0 top-20 z-[80] hidden w-[400px] border-l border-[#E5DED2] bg-[#FFFDF8] shadow-2xl lg:block xl:w-[430px]">
           <CustomizationContent
             product={product}
             isRamen={isRamen}
-            noodles={noodles}
-            spiceLevels={spiceLevels}
             noodle={noodle}
             setNoodle={setNoodle}
+            noodleOptions={
+              noodleOptions
+            }
             spice={spice}
             setSpice={setSpice}
+            spiceOptions={
+              spiceOptions
+            }
             quantity={quantity}
-            setQuantity={setQuantity}
-            addOns={addOns}
+            setQuantity={
+              setQuantity
+            }
             selectedAddons={
               selectedAddons
             }
+            addons={addons}
             toggleAddon={
               toggleAddon
             }
@@ -490,56 +346,49 @@ export default function ProductCustomization({
   );
 }
 
-// ============================================================
-// CUSTOMIZATION CONTENT
-// ============================================================
-
 function CustomizationContent({
   product,
   isRamen,
-
-  noodles,
-  spiceLevels,
-
   noodle,
   setNoodle,
-
+  noodleOptions,
   spice,
   setSpice,
-
+  spiceOptions,
   quantity,
   setQuantity,
-
-  addOns,
-
   selectedAddons,
+  addons,
   toggleAddon,
-
   total,
   addonTotal,
-
   onClose,
   onAdd,
-
-  mobile,
 }) {
+  const [imageError, setImageError] =
+    useState(false);
+
+  const imageUrl =
+    typeof product?.image ===
+      "string"
+      ? product.image.trim()
+      : "";
+
   const isVeg =
-    product?.foodType ===
-      "veg" ||
-    product?.isVeg === true;
+    String(
+      product?.foodType || ""
+    )
+      .trim()
+      .toLowerCase() ===
+    "veg";
 
   return (
     <div className="flex h-full max-h-[88vh] flex-col">
-      {/* ====================================================
-          HEADER
-      ==================================================== */}
-
       <div className="flex shrink-0 items-center justify-between border-b border-[#E5DED2] px-5 py-4 sm:px-6 sm:py-5">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-[#B83A2E]">
             Customize
           </p>
-
           <h2 className="mt-1 text-lg font-semibold">
             Your item
           </h2>
@@ -553,38 +402,39 @@ function CustomizationContent({
         </button>
       </div>
 
-      {/* ====================================================
-          SCROLLABLE CONTENT
-      ==================================================== */}
-
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-        {/* ==================================================
-            PRODUCT
-        ================================================== */}
-
         <div className="flex items-center gap-4">
-          <img
-            src={
-              product.image
-            }
-            alt={
-              product.name
-            }
-            className="h-20 w-20 shrink-0 rounded-2xl object-cover sm:h-24 sm:w-24"
-          />
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#F5F0E8] sm:h-24 sm:w-24">
+            {imageUrl &&
+            !imageError ? (
+              <img
+                src={imageUrl}
+                alt={
+                  product.name
+                }
+                onError={() =>
+                  setImageError(
+                    true
+                  )
+                }
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <ImageOff
+                size={32}
+                strokeWidth={1.5}
+                className="text-[#8A8177]"
+              />
+            )}
+          </div>
 
           <div className="min-w-0">
             <h3 className="text-lg font-semibold">
-              {
-                product.name
-              }
+              {product.name}
             </h3>
 
             <p className="mt-1 font-medium">
-              ₹
-              {
-                product.price
-              }
+              ₹{product.price}
             </p>
 
             <div className="mt-2">
@@ -601,199 +451,143 @@ function CustomizationContent({
           </div>
         </div>
 
-        {/* ==================================================
-            NOODLES
-        ================================================== */}
-
-        {isRamen &&
-          noodles.length >
-            0 && (
-            <div className="mt-6 border-t border-[#E5DED2] pt-5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">
-                  Choose your
-                  noodles
-                </h3>
-
-                <span className="text-xs text-[#8A8177]">
-                  Required
-                </span>
-              </div>
-
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {noodles.map(
-                  (item) => (
-                    <button
-                      key={
-                        String(
-                          item
-                        )
-                      }
-                      onClick={() =>
-                        setNoodle(
-                          String(
-                            item
-                          )
-                        )
-                      }
-                      className={`rounded-xl border px-2 py-3 text-sm transition ${
-                        noodle ===
-                        String(
-                          item
-                        )
-                          ? "border-[#171513] bg-[#171513] text-white"
-                          : "border-[#DED6C9] bg-[#FFFDF8]"
-                      }`}
-                    >
-                      {
-                        item
-                      }
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-
-        {/* ==================================================
-            SPICE
-        ================================================== */}
-
-        {isRamen &&
-          spiceLevels.length >
-            0 && (
-            <div className="mt-6">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">
-                  Spice level
-                </h3>
-
-                <span className="text-xs text-[#8A8177]">
-                  Required
-                </span>
-              </div>
-
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {spiceLevels.map(
-                  (item) => (
-                    <button
-                      key={
-                        String(
-                          item
-                        )
-                      }
-                      onClick={() =>
-                        setSpice(
-                          String(
-                            item
-                          )
-                        )
-                      }
-                      className={`rounded-xl border px-2 py-3 text-sm transition ${
-                        spice ===
-                        String(
-                          item
-                        )
-                          ? "border-[#171513] bg-[#171513] text-white"
-                          : "border-[#DED6C9] bg-[#FFFDF8]"
-                      }`}
-                    >
-                      {
-                        item
-                      }
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-
-        {/* ==================================================
-            ADD-ONS
-        ================================================== */}
-
-        {addOns.length >
-          0 && (
+        {isRamen && (
           <div className="mt-6 border-t border-[#E5DED2] pt-5">
-            <h3 className="font-semibold">
-              Make it yours{" "}
-              <span className="font-normal text-[#8A8177]">
-                (Add-ons)
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">
+                Choose your noodles
+              </h3>
+              <span className="text-xs text-[#8A8177]">
+                Required
               </span>
-            </h3>
+            </div>
 
-            <div className="mt-3 space-y-2">
-              {addOns.map(
-                (addon) => {
-                  const addonId =
-                    String(
-                      addon._id ||
-                        addon.id ||
-                        ""
-                    );
-
-                  const selected =
-                    selectedAddons.includes(
-                      addonId
-                    );
-
-                  return (
-                    <button
-                      key={
-                        addonId
-                      }
-                      onClick={() =>
-                        toggleAddon(
-                          addonId
-                        )
-                      }
-                      className={`flex w-full items-center justify-between rounded-xl border px-3 py-3.5 text-left ${
-                        selected
-                          ? "border-[#B83A2E]/40 bg-[#B83A2E]/5"
-                          : "border-[#DED6C9]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`flex h-5 w-5 items-center justify-center rounded-md border ${
-                            selected
-                              ? "border-[#B83A2E] bg-[#B83A2E] text-white"
-                              : "border-[#BDB4A8]"
-                          }`}
-                        >
-                          {selected && (
-                            <Check
-                              size={
-                                13
-                              }
-                            />
-                          )}
-                        </span>
-
-                        <span className="text-sm">
-                          {
-                            addon.name
-                          }
-                        </span>
-                      </div>
-
-                      <span className="text-sm text-[#6B6258]">
-                        +₹
-                        {
-                          addon.price
-                        }
-                      </span>
-                    </button>
-                  );
-                }
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {noodleOptions.map(
+                (item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() =>
+                      setNoodle(
+                        item
+                      )
+                    }
+                    className={`rounded-xl border px-2 py-3 text-sm transition ${
+                      noodle === item
+                        ? "border-[#171513] bg-[#171513] text-white"
+                        : "border-[#DED6C9] bg-[#FFFDF8]"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
               )}
             </div>
           </div>
         )}
 
-        {/* ==================================================
-            QUANTITY
-        ================================================== */}
+        {isRamen && (
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">
+                Spice level
+              </h3>
+              <span className="text-xs text-[#8A8177]">
+                Required
+              </span>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {spiceOptions.map(
+                (item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() =>
+                      setSpice(
+                        item
+                      )
+                    }
+                    className={`rounded-xl border px-2 py-3 text-sm transition ${
+                      spice === item
+                        ? "border-[#171513] bg-[#171513] text-white"
+                        : "border-[#DED6C9] bg-[#FFFDF8]"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 border-t border-[#E5DED2] pt-5">
+          <h3 className="font-semibold">
+            Make it yours{" "}
+            <span className="font-normal text-[#8A8177]">
+              (Add-ons)
+            </span>
+          </h3>
+
+          <div className="mt-3 space-y-2">
+            {addons.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#DED6C9] px-3 py-4 text-sm text-[#8A8177]">
+                No add-ons available for
+                this item.
+              </div>
+            ) : (
+              addons.map((addon) => {
+                const selected =
+                  selectedAddons.includes(
+                    addon.id
+                  );
+
+                return (
+                  <button
+                    key={addon.id}
+                    type="button"
+                    onClick={() =>
+                      toggleAddon(
+                        addon.id
+                      )
+                    }
+                    className={`flex w-full items-center justify-between rounded-xl border px-3 py-3.5 text-left ${
+                      selected
+                        ? "border-[#B83A2E]/40 bg-[#B83A2E]/5"
+                        : "border-[#DED6C9]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-md border ${
+                          selected
+                            ? "border-[#B83A2E] bg-[#B83A2E] text-white"
+                            : "border-[#BDB4A8]"
+                        }`}
+                      >
+                        {selected && (
+                          <Check
+                            size={13}
+                          />
+                        )}
+                      </span>
+
+                      <span className="text-sm">
+                        {addon.name}
+                      </span>
+                    </div>
+
+                    <span className="text-sm text-[#6B6258]">
+                      +₹{addon.price}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
 
         <div className="mt-6 flex items-center justify-between border-t border-[#E5DED2] pt-5">
           <h3 className="font-semibold">
@@ -802,6 +596,7 @@ function CustomizationContent({
 
           <div className="flex items-center rounded-xl border border-[#DED6C9]">
             <button
+              type="button"
               onClick={() =>
                 setQuantity(
                   (value) =>
@@ -817,19 +612,15 @@ function CustomizationContent({
             </button>
 
             <span className="w-8 text-center text-sm font-semibold">
-              {
-                quantity
-              }
+              {quantity}
             </span>
 
             <button
+              type="button"
               onClick={() =>
                 setQuantity(
                   (value) =>
-                    Math.min(
-                      99,
-                      value + 1
-                    )
+                    value + 1
                 )
               }
               className="flex h-10 w-10 items-center justify-center"
@@ -839,10 +630,6 @@ function CustomizationContent({
           </div>
         </div>
 
-        {/* ==================================================
-            TOTAL
-        ================================================== */}
-
         <div className="mt-5 rounded-2xl bg-[#F5F0E8] p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -851,13 +638,8 @@ function CustomizationContent({
               </p>
 
               <p className="mt-1 text-xs text-[#6B6258]">
-                Base ₹
-                {
-                  product.price
-                }
-
-                {addonTotal >
-                  0 &&
+                Base ₹{product.price}
+                {addonTotal > 0 &&
                   ` + Add-ons ₹${addonTotal}`}
               </p>
             </div>
@@ -869,25 +651,19 @@ function CustomizationContent({
         </div>
       </div>
 
-      {/* ====================================================
-          BOTTOM ACTION
-      ==================================================== */}
-
       <div className="shrink-0 border-t border-[#E5DED2] bg-[#FFFDF8] p-4 sm:p-5">
         <button
+          type="button"
           onClick={onAdd}
           className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#B83A2E] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#171513]"
         >
           <ShoppingCart
             size={18}
           />
-
           Add to Cart
-
           <span className="opacity-60">
             |
           </span>
-
           ₹{total}
         </button>
       </div>

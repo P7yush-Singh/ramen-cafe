@@ -5,6 +5,8 @@ import Link from "next/link";
 
 import { Search, ShoppingCart, SlidersHorizontal, X } from "lucide-react";
 
+import ProductSkeleton from "@/components/ProductSkeleton";
+
 import MenuCard from "@/components/MenuCard";
 import ProductCustomization from "@/components/ProductCustomization";
 
@@ -64,7 +66,34 @@ export default function MenuPage() {
             ...product,
 
             // MongoDB ObjectId -> string ID
-            id: product._id?.toString(),
+            id:
+              product._id?.toString(),
+
+            image:
+              typeof product.image ===
+              "string"
+                ? product.image.trim()
+                : "",
+
+            foodType:
+              String(
+                product.foodType ||
+                  "veg"
+              ).toLowerCase() ===
+              "non-veg"
+                ? "non-veg"
+                : "veg",
+
+            isPopular:
+              product.isPopular ===
+              true,
+
+            addOns:
+              Array.isArray(
+                product.addOns
+              )
+                ? product.addOns
+                : [],
           }))
         : [];
 
@@ -384,6 +413,7 @@ export default function MenuPage() {
                 alt="Ramen Cafe Logo"
                 width={50}
                 height={50}
+                loading="eager"
               />
             </div>
 
@@ -552,16 +582,16 @@ export default function MenuPage() {
             LOADING
         ------------------------------------------------- */}
 
+
         {isLoadingProducts ? (
-          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-            {[1, 2, 3, 4].map((item) => (
-              <div
-                key={item}
-                className="h-48 animate-pulse rounded-3xl bg-[#FFFDF8]"
-              />
-            ))}
-          </div>
-        ) : productError ? (
+  <div
+    className="grid gap-3 sm:grid-cols-2 sm:gap-4"
+    aria-label="Loading menu"
+    aria-busy="true"
+  >
+    <ProductSkeleton count={6} />
+  </div>
+) : productError ? (
           /* -------------------------------------------------
               ERROR
           ------------------------------------------------- */

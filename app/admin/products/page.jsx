@@ -5,6 +5,8 @@ import {
   useState,
 } from "react";
 
+import AdminProductSkeleton from "@/components/AdminProductSkeleton";
+
 import Link from "next/link";
 
 import {
@@ -257,17 +259,8 @@ export default function ProductsPage() {
         {/* LOADING */}
 
         {loading && (
-          <div className="mt-6 rounded-2xl border border-[#E5DED2] bg-[#FFFDF8] p-12 text-center">
-            <RefreshCw
-              size={24}
-              className="mx-auto animate-spin"
-            />
-
-            <p className="mt-3 text-sm text-[#6B6258]">
-              Loading products...
-            </p>
-          </div>
-        )}
+  <AdminProductSkeleton count={6} />
+)}
 
         {/* EMPTY */}
 
