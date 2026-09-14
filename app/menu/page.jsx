@@ -495,7 +495,7 @@ export default function MenuPage() {
           Our Menu
         </p>
 
-        <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+        <div className="hidden lg:flex mt-3 flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <h1 className="max-w-3xl text-[36px] font-semibold leading-[1.02] tracking-[-0.045em] sm:text-5xl lg:text-6xl">
               Choose your favorite
@@ -507,6 +507,7 @@ export default function MenuPage() {
               Fresh ingredients. Authentic flavors.
             </p>
           </div>
+</div>
 
           {/* Search */}
 
